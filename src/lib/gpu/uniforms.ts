@@ -9,6 +9,7 @@ export type Uniform =
 	| { readonly type: 'f32'; readonly value: number }
 	| { readonly type: 'vec2f'; readonly value: readonly [number, number] }
 	| { readonly type: 'vec3f'; readonly value: readonly [number, number, number] }
+	| { readonly type: 'vec4f'; readonly value: readonly [number, number, number, number] }
 	| { readonly type: 'mat3x3f'; readonly value: Mat3 };
 
 export type Uniforms = Readonly<Record<string, Uniform>>;
@@ -19,6 +20,10 @@ export const vec3f = (value: readonly [number, number, number]): Uniform => ({
 	type: 'vec3f',
 	value
 });
+export const vec4f = (value: readonly [number, number, number, number]): Uniform => ({
+	type: 'vec4f',
+	value
+});
 export const mat3x3f = (value: Mat3): Uniform => ({ type: 'mat3x3f', value });
 
 // WGSL host-shareable layout (https://www.w3.org/TR/WGSL/#alignment-and-size), in floats.
@@ -26,6 +31,7 @@ const layout: Record<Uniform['type'], { align: number; size: number }> = {
 	f32: { align: 1, size: 1 },
 	vec2f: { align: 2, size: 2 },
 	vec3f: { align: 4, size: 3 },
+	vec4f: { align: 4, size: 4 },
 	mat3x3f: { align: 4, size: 12 }
 };
 
@@ -53,6 +59,7 @@ export function pack(uniforms: Uniforms): Float32Array<ArrayBuffer> {
 				break;
 			case 'vec2f':
 			case 'vec3f':
+			case 'vec4f':
 				data.set(uniform.value, offset);
 				break;
 			case 'mat3x3f':

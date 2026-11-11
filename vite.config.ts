@@ -19,9 +19,10 @@ export default defineConfig({
 		include: ['src/**/*.test.ts'],
 		// Shader tests need WebGPU, so every test runs in a real browser.
 		// CHROMIUM selects a system browser instead of Playwright's download.
+		// Headless Chromium only offers a software GPU; HEADED=1 runs on the real one.
 		browser: {
 			enabled: true,
-			headless: true,
+			headless: !process.env.HEADED,
 			screenshotFailures: false,
 			provider: playwright({
 				launchOptions: {

@@ -17,8 +17,6 @@ export type Encoding =
 	| 'scene'
 	/** One channel: exposure in stops (log2 ratio). */
 	| 'stops'
-	/** Lightness, chroma, hue of the uniform colour space in r, g, b. */
-	| 'lch'
 	/** One channel in [0, 1]. */
 	| 'mask'
 	/** Display-referred, encoded for the output profile. */
@@ -26,7 +24,7 @@ export type Encoding =
 
 export type Image<E extends Encoding> = GPUTexture & { readonly [encoding]: E };
 
-export type Format = 'r16uint' | 'r32float' | 'rgba16float' | 'rgba8unorm';
+export type Format = 'r16uint' | 'r32float' | 'rgba16float' | 'rgba32float' | 'rgba8unorm';
 
 export interface Size {
 	readonly width: number;
@@ -57,6 +55,7 @@ const bytesPerPixel: Record<Format, number> = {
 	r16uint: 2,
 	r32float: 4,
 	rgba16float: 8,
+	rgba32float: 16,
 	rgba8unorm: 4
 };
 
