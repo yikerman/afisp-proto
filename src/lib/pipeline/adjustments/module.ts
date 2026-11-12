@@ -3,13 +3,13 @@ import type { Image } from '../../gpu/image';
 import type { Reference } from '../reference';
 import type { Mask } from './mask';
 
-/** WGSL types a module parameter can have. */
-export type ParamType = 'f32' | 'vec2f' | `array<f32, ${number}>`;
+/** GLSL types a module parameter can have; each is also a uniform type. */
+export type ParamType = 'float' | 'vec2' | `float[${number}]`;
 export type Params = Readonly<Record<string, ParamType>>;
 
-type Value<T extends ParamType> = T extends 'f32'
+type Value<T extends ParamType> = T extends 'float'
 	? number
-	: T extends 'vec2f'
+	: T extends 'vec2'
 		? readonly [number, number]
 		: readonly number[];
 
@@ -19,10 +19,10 @@ export type Values<P extends Params> = { readonly [K in keyof P]: Value<P[K]> };
  * What a module is allowed to compute. The kind fixes the module's signature,
  * and with it what the module can depend on. Kinds run in this order:
  *
- * - `tone`: `fn name(reference: Reference, params: name_params) -> f32`, an
+ * - `tone`: `float name(Reference reference, name_params params)`, an
  *   exposure offset in stops. It sees only the reference, so tone terms add up
  *   in any order.
- * - `colour`: `fn name(rgb: vec3f, reference: Reference, params: name_params) -> vec3f`,
+ * - `colour`: `vec3 name(vec3 rgb, Reference reference, name_params params)`,
  *   scene-linear in and out, one pixel at a time.
  * - `spatial`: image to image, where a pixel may depend on its neighbours.
  */
@@ -31,7 +31,7 @@ export type ShaderKind = Exclude<Kind, 'spatial'>;
 
 interface Described<K extends Kind, P extends Params> {
 	readonly kind: K;
-	/** Name of the module; for shader modules also of its WGSL function and `${name}_params`. */
+	/** Name of the module; for shader modules also of its GLSL function and `${name}_params`. */
 	readonly name: string;
 	readonly params: P;
 	/** Parameter values at which the module changes nothing. */
@@ -42,8 +42,8 @@ export interface ShaderModule<
 	K extends ShaderKind = ShaderKind,
 	P extends Params = Params
 > extends Described<K, P> {
-	readonly wgsl: string;
-	/** Shared WGSL the function needs; included once however many modules ask for it. */
+	readonly glsl: string;
+	/** Shared GLSL the function needs; included once however many modules ask for it. */
 	readonly imports: readonly string[];
 }
 

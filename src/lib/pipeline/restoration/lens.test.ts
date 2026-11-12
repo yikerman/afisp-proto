@@ -18,7 +18,7 @@ async function corrected(gpu: Gpu, size: Size, image: Pixel, correction: LensCor
 			pixels.set([...image(x, y), 1], 4 * (y * size.width + x));
 		}
 	}
-	const camera = upload<'camera'>(gpu, 'camera', size, 'rgba16float', pixels);
+	const camera = upload<'camera'>(gpu, size, 'RGBA16F', pixels);
 	const result = correctLens(gpu, camera, correction);
 	const out = new Float16Array(await download(gpu, result));
 	const input = new Float16Array(await download(gpu, camera));

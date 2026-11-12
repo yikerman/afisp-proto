@@ -3,14 +3,14 @@
  * function of the reference and the pixel position only.
  *
  * Only the whole image exists so far. Shapes, tonal ranges and their
- * combinations are further variants of this union and cases of `maskWgsl`.
+ * combinations are further variants of this union and cases of `maskGlsl`.
  */
 export type Mask = { readonly kind: 'everywhere' };
 
 export const everywhere: Mask = { kind: 'everywhere' };
 
-/** A WGSL expression of type f32, in a scope with `reference: Reference` and `p: vec2i`. */
-export function maskWgsl(mask: Mask): string {
+/** A GLSL expression of type float, in a scope with `Reference reference` and `ivec2 p`. */
+export function maskGlsl(mask: Mask): string {
 	switch (mask.kind) {
 		case 'everywhere':
 			return '1.0';

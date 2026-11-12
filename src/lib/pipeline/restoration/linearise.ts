@@ -1,7 +1,7 @@
 import type { Gpu } from '../../gpu/gpu';
 import type { Image } from '../../gpu/image';
 import { run } from '../../gpu/pass';
-import { f32, vec2f, vec4f } from '../../gpu/uniforms';
+import { float, vec2, vec4 } from '../../gpu/uniforms';
 import type { Vec3 } from '../../math/matrix';
 import type { RawMeta } from '../../raw/decode';
 
@@ -15,12 +15,12 @@ export function demosaicGains(meta: RawMeta): Vec3 {
 	return [meta.asShotGains[0] / least, meta.asShotGains[1] / least, meta.asShotGains[2] / least];
 }
 
-const wgsl = /* wgsl */ `
-fn pixel(p: vec2i) -> vec4f {
-	let site = (p.y & 1) * 2 + (p.x & 1);
-	let counts = f32(textureLoad(sensor, p + vec2i(u.origin), 0).r);
-	let linear = (counts - u.black[site]) / (u.white - u.black[site]);
-	return vec4f(clamp(linear * u.gain[site], 0, 1), 0, 0, 1);
+const glsl = /* glsl */ `
+vec4 pixel(ivec2 p) {
+	int site = (p.y & 1) * 2 + (p.x & 1);
+	float counts = float(texelFetch(sensor, p + ivec2(u.origin), 0).r);
+	float linear = (counts - u.black[site]) / (u.white - u.black[site]);
+	return vec4(clamp(linear * u.gain[site], 0.0, 1.0), 0, 0, 1);
 }`;
 
 /** Crops to the active area, removes the black level and scales clipping to 1. */
@@ -29,15 +29,15 @@ export function linearise(gpu: Gpu, sensor: Image<'sensor'>, meta: RawMeta): Ima
 	const [a, b, c, d] = meta.pattern;
 	return run(gpu, {
 		label: 'linearise',
-		wgsl,
+		glsl,
 		textures: { sensor },
 		uniforms: {
-			origin: vec2f([meta.active.x, meta.active.y]),
-			black: vec4f(meta.black),
-			white: f32(meta.white),
-			gain: vec4f([gains[a], gains[b], gains[c], gains[d]])
+			origin: vec2([meta.active.x, meta.active.y]),
+			black: vec4(meta.black),
+			white: float(meta.white),
+			gain: vec4([gains[a], gains[b], gains[c], gains[d]])
 		},
 		size: meta.active,
-		format: 'r32float'
+		format: 'R32F'
 	});
 }

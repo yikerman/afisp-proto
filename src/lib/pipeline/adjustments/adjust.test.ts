@@ -31,7 +31,7 @@ function scenePixels(): Float16Array {
 
 beforeAll(async () => {
 	gpu = await acquireGpu('accept');
-	reference = measure(gpu, upload(gpu, 'scene', size, 'rgba16float', scenePixels()));
+	reference = measure(gpu, upload(gpu, size, 'RGBA16F', scenePixels()));
 });
 
 const read = async (image: Image<'scene'>) => new Float16Array(await download(gpu, image));
@@ -144,7 +144,7 @@ test('local contrast scales fine variation and leaves the level of flat areas al
 		const level = MIDDLE_GREY * (x < wide.width / 2 ? 1 : 2 ** (Math.sin(x * 1.3) / 3));
 		pixels.set([level, level, level, 1], i * 4);
 	}
-	const textured = measure(gpu, upload(gpu, 'textured', wide, 'rgba16float', pixels));
+	const textured = measure(gpu, upload(gpu, wide, 'RGBA16F', pixels));
 	const result = await read(
 		adjust(gpu, textured, [instance(localContrast, { amount: 1 }, everywhere)])
 	);

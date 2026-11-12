@@ -31,7 +31,7 @@ jobs:
       - run: npm ci
       - run: npm run check
       - run: npm run lint
-      # Tests are not run here: they need a browser with WebGPU and run locally.
+      # Tests are not run here: they need a browser with WebGL 2 and run locally.
 
       - id: pages
         uses: actions/configure-pages@v6

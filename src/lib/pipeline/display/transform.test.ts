@@ -330,7 +330,7 @@ async function evaluate(pixels: readonly Vec3[]): Promise<{ input: Vec3[]; outpu
 	const gpu = await acquireGpu('accept');
 	const data = new Float16Array(pixels.flatMap(([r, g, b]) => [r, g, b, 1]));
 	const size = { width: pixels.length, height: 1 };
-	const scene: Image<'scene'> = upload(gpu, 'scene', size, 'rgba16float', data);
+	const scene: Image<'scene'> = upload(gpu, size, 'RGBA16F', data);
 	const result = new Float16Array(await download(gpu, displayTransform(gpu, scene)));
 	const rgb = (a: Float16Array, i: number): Vec3 => [a[4 * i]!, a[4 * i + 1]!, a[4 * i + 2]!];
 	for (let i = 0; i < pixels.length; i++) expect(result[4 * i + 3]).toBe(1);

@@ -11,7 +11,7 @@ export default defineConfig({
 				runes: ({ filename }) =>
 					filename.split(/[/\\]/).includes('node_modules') ? undefined : true
 			},
-			// The app is client-only (WebGPU); it ships as static files with one entry page.
+			// The app is client-only (WebGL 2); it ships as static files with one entry page.
 			adapter: adapter({ fallback: 'index.html' }),
 			// A GitHub Pages project site lives under /<repository>; the deploy workflow sets
 			// BASE_PATH from the Pages configuration. SvelteKit validates the value.
@@ -20,7 +20,7 @@ export default defineConfig({
 	],
 	test: {
 		include: ['src/**/*.test.ts'],
-		// Shader tests need WebGPU, so every test runs in a real browser.
+		// Shader tests need WebGL 2, so every test runs in a real browser.
 		// CHROMIUM selects a system browser instead of Playwright's download.
 		// Headless Chromium only offers a software GPU; HEADED=1 runs on the real one.
 		browser: {
@@ -28,10 +28,7 @@ export default defineConfig({
 			headless: !process.env.HEADED,
 			screenshotFailures: false,
 			provider: playwright({
-				launchOptions: {
-					...(process.env.CHROMIUM ? { executablePath: process.env.CHROMIUM } : {}),
-					args: ['--enable-unsafe-webgpu']
-				}
+				launchOptions: process.env.CHROMIUM ? { executablePath: process.env.CHROMIUM } : {}
 			}),
 			instances: [{ browser: 'chromium' }]
 		}

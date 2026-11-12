@@ -1,7 +1,7 @@
 <script lang="ts">
 	import type { Gpu } from '../gpu/gpu';
 	import type { Size } from '../gpu/image';
-	import { runInto } from '../gpu/pass';
+	import { present } from '../gpu/pass';
 	import type { Vec2 } from '../math/matrix';
 	import type { Edit, Renderer } from '../pipeline/render';
 	import { histogram, type Histogram } from '../view/histogram';
@@ -21,7 +21,6 @@
 	let { gpu, renderer, edit, image, onhistogram, onpick }: Props = $props();
 
 	const MAX_SCALE = 8;
-	const format = navigator.gpu.getPreferredCanvasFormat() as 'rgba8unorm' | 'bgra8unorm';
 	let frame: HTMLDivElement;
 	let canvas: HTMLCanvasElement;
 	const pan = travel();
@@ -98,20 +97,15 @@
 	});
 
 	$effect(() => {
-		canvas
-			.getContext('webgpu')!
-			.configure({ device: gpu.device, format, alphaMode: 'premultiplied' });
-	});
-
-	$effect(() => {
 		const [shown, current] = [view, edit];
 		if (!shown) return;
 		const request = requestAnimationFrame(() => {
 			canvas.width = shown.size.width;
 			canvas.height = shown.size.height;
 			const display = renderer.render(current);
-			const target = canvas.getContext('webgpu')!.getCurrentTexture();
-			runInto(gpu, resample(display, shown, format), target);
+			canvas
+				.getContext('bitmaprenderer')!
+				.transferFromImageBitmap(present(gpu, resample(display, shown)));
 			void histogram(gpu, display).then(onhistogram);
 		});
 		return () => cancelAnimationFrame(request);

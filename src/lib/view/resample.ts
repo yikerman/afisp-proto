@@ -1,7 +1,7 @@
-import { srgbWgsl } from '../colour/srgb';
+import { srgbGlsl } from '../colour/srgb';
 import type { Image, Size } from '../gpu/image';
 import type { Pass } from '../gpu/pass';
-import { f32, vec2f } from '../gpu/uniforms';
+import { float, vec2 } from '../gpu/uniforms';
 import type { Vec2 } from '../math/matrix';
 
 /** How the display image is laid onto an output of `size` pixels. */
@@ -26,41 +26,37 @@ export const imagePoint = (view: View, [x, y]: Vec2): Vec2 => [
 	view.centre[1] + (y - view.size.height / 2) / view.scale
 ];
 
-const wgsl = /* wgsl */ `
-${srgbWgsl}
+const glsl = /* glsl */ `
+${srgbGlsl}
 
-fn pixel(p: vec2i) -> vec4f {
-	let first = vec2i(floor((vec2f(p) - u.size / 2) / u.scale + u.centre));
-	let next = vec2i(floor((vec2f(p) + 1 - u.size / 2) / u.scale + u.centre));
-	let limit = vec2i(textureDimensions(display)) - 1;
+vec4 pixel(ivec2 p) {
+	ivec2 first = ivec2(floor((vec2(p) - u.size / 2.0) / u.scale + u.centre));
+	ivec2 next = ivec2(floor((vec2(p) + 1.0 - u.size / 2.0) / u.scale + u.centre));
+	ivec2 limit = textureSize(display, 0) - 1;
 	// Outside the picture the output is transparent.
-	if (any(first < vec2i(0)) || any(first > limit)) {
-		return vec4f(0);
+	if (any(lessThan(first, ivec2(0))) || any(greaterThan(first, limit))) {
+		return vec4(0);
 	}
 	// Each output pixel is the mean of the image area it covers; averaging is done on light.
-	let count = max(next - first, vec2i(1));
-	var sum = vec3f(0);
-	for (var y = 0; y < count.y; y++) {
-		for (var x = 0; x < count.x; x++) {
-			sum += srgb_decode(textureLoad(display, min(first + vec2i(x, y), limit), 0).rgb);
+	ivec2 count = max(next - first, ivec2(1));
+	vec3 sum = vec3(0);
+	for (int y = 0; y < count.y; y++) {
+		for (int x = 0; x < count.x; x++) {
+			sum += srgb_decode(texelFetch(display, min(first + ivec2(x, y), limit), 0).rgb);
 		}
 	}
-	return vec4f(srgb_encode(sum / f32(count.x * count.y)), 1);
+	return vec4(srgb_encode(sum / float(count.x * count.y)), 1);
 }`;
 
-export const resample = (
-	display: Image<'display'>,
-	view: View,
-	format: 'rgba8unorm' | 'bgra8unorm'
-): Pass => ({
+export const resample = (display: Image<'display'>, view: View): Pass & { format: 'RGBA8' } => ({
 	label: 'resample',
-	wgsl,
+	glsl,
 	textures: { display },
 	uniforms: {
-		size: vec2f([view.size.width, view.size.height]),
-		centre: vec2f(view.centre),
-		scale: f32(view.scale)
+		size: vec2([view.size.width, view.size.height]),
+		centre: vec2(view.centre),
+		scale: float(view.scale)
 	},
 	size: view.size,
-	format
+	format: 'RGBA8'
 });

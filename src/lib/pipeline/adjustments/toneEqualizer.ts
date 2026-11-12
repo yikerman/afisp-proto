@@ -1,10 +1,11 @@
+import { glslFloat } from '../../gpu/glsl';
 import type { Module } from './module';
 
 /** Tonal zones the curve is defined at, in stops relative to middle grey. */
 export const NODE_STOPS = [-8, -6, -4, -2, 0, 2, 4, 6, 8] as const;
 const [FIRST, SPACING, COUNT] = [NODE_STOPS[0], NODE_STOPS[1] - NODE_STOPS[0], NODE_STOPS.length];
 
-type Nodes = { readonly nodes: `array<f32, ${typeof COUNT}>` };
+type Nodes = { readonly nodes: `float[${typeof COUNT}]` };
 
 /**
  * Exposure offset as a curve over tonal zones, as in darktable's tone
@@ -18,32 +19,32 @@ type Nodes = { readonly nodes: `array<f32, ${typeof COUNT}>` };
 export const toneEqualizer: Module<'tone', Nodes> = {
 	kind: 'tone',
 	name: 'tone_equalizer',
-	params: { nodes: `array<f32, ${COUNT}>` },
+	params: { nodes: `float[${COUNT}]` },
 	identity: { nodes: NODE_STOPS.map(() => 0) },
 	imports: [],
-	wgsl: /* wgsl */ `
-fn tone_equalizer_tangent(before: f32, after: f32) -> f32 {
-	return select(0.0, 2 * before * after / (before + after), before * after > 0);
+	glsl: /* glsl */ `
+float tone_equalizer_tangent(float before, float after) {
+	return before * after > 0.0 ? 2.0 * before * after / (before + after) : 0.0;
 }
 
-fn tone_equalizer(reference: Reference, params: tone_equalizer_params) -> f32 {
-	var nodes = params.nodes;
-	let last = ${COUNT - 1};
-	let x = clamp((reference.smoothed_stops - (${FIRST})) / ${SPACING}, 0, f32(last));
-	let i = min(i32(x), last - 1);
-	let t = x - f32(i);
+float tone_equalizer(Reference reference, tone_equalizer_params params) {
+	float nodes[${COUNT}] = params.nodes;
+	const int last = ${COUNT - 1};
+	float x = clamp((reference.smoothed_stops - (${glslFloat(FIRST)})) / ${glslFloat(SPACING)}, 0.0, float(last));
+	int i = min(int(x), last - 1);
+	float t = x - float(i);
 
-	let rise = nodes[i + 1] - nodes[i];
+	float rise = nodes[i + 1] - nodes[i];
 	// Past either end the curve continues its last segment.
-	let rise_before = nodes[i] - nodes[max(i - 1, 0)];
-	let rise_after = nodes[min(i + 2, last)] - nodes[i + 1];
-	let m0 = select(tone_equalizer_tangent(rise_before, rise), rise, i == 0);
-	let m1 = select(tone_equalizer_tangent(rise, rise_after), rise, i == last - 1);
+	float rise_before = nodes[i] - nodes[max(i - 1, 0)];
+	float rise_after = nodes[min(i + 2, last)] - nodes[i + 1];
+	float m0 = i == 0 ? rise : tone_equalizer_tangent(rise_before, rise);
+	float m1 = i == last - 1 ? rise : tone_equalizer_tangent(rise, rise_after);
 
-	let t2 = t * t;
-	let t3 = t2 * t;
-	return (2 * t3 - 3 * t2 + 1) * nodes[i] + (t3 - 2 * t2 + t) * m0
-		+ (-2 * t3 + 3 * t2) * nodes[i + 1] + (t3 - t2) * m1;
+	float t2 = t * t;
+	float t3 = t2 * t;
+	return (2.0 * t3 - 3.0 * t2 + 1.0) * nodes[i] + (t3 - 2.0 * t2 + t) * m0
+		+ (-2.0 * t3 + 3.0 * t2) * nodes[i + 1] + (t3 - t2) * m1;
 }`
 };
 

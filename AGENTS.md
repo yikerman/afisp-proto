@@ -25,7 +25,7 @@ CHROMIUM=/usr/bin/chromium-browser npm test   # all tests, in a browser
 
 ```
 src/lib/
-  gpu/         WebGPU boundary: device, typed images, the pass runner, uniforms
+  gpu/         WebGL 2 boundary: context, typed images, the pass runner, uniforms
   math/        3x3 matrices
   colour/      colour spaces, adaptation, illuminants, Oklab, sRGB
   raw/         RAW decode boundary (LibRaw) and the Bayer pattern type
@@ -99,9 +99,9 @@ feature easier; raise the conflict instead.
 - One source of truth for every value. When two things must agree, compute
   both through the same code.
 - Constants derived from other constants are computed in TypeScript and
-  injected into WGSL, not pasted.
-- Shaders are plain WGSL strings next to the TypeScript that runs them. A
-  pass defines `fn pixel(p: vec2i) -> vec4f` and reads only what it is given.
+  injected into GLSL, not pasted.
+- Shaders are plain GLSL ES 3.00 strings next to the TypeScript that runs
+  them. A pass defines `vec4 pixel(ivec2 p)` and reads only what it is given.
 - Comments say why, briefly, and cite the source. They do not narrate.
 - Use the standard term for a thing. Do not coin names.
 - Workarounds for browser or driver faults stay at the boundary, with a
@@ -118,17 +118,17 @@ feature easier; raise the conflict instead.
   they use small images. A passing test says nothing about full-size
   behaviour. Check that in a visible browser with a real RAW file.
 
-## Running in a browser on Linux
+## Running in a browser
 
-Chromium needs flags for WebGPU on the graphics card:
+The app runs on WebGL 2 with float render targets (`EXT_color_buffer_float`)
+in an ordinary Chromium as Linux distributions ship it, with no flags. It
+refuses a software renderer (SwiftShader, llvmpipe), which would take seconds
+per frame; `chrome://gpu` shows what WebGL runs on.
 
-```
-chromium-browser --enable-unsafe-webgpu --use-angle=vulkan http://localhost:5173/
-```
-
-Without `--use-angle=vulkan`, Chromium's GPU sandbox can hide the Vulkan
-driver and WebGPU falls back to a software adapter, which the app refuses.
-Do not add `--enable-features=Vulkan`; it breaks 2D canvas drawing.
+Chromium on Linux runs WebGL on ANGLE's OpenGL backend, where a new texture
+costs about as much as uploading its size in zeros. `gpu/image.ts` reuses
+released textures for that reason, so the first frame after opening a file is
+slower than the ones after it.
 
 ## Interface
 
