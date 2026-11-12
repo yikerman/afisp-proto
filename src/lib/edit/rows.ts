@@ -3,14 +3,15 @@ import {
 	ALL_TONES,
 	BRIGHTEST,
 	DARKEST,
-	EVERYWHERE,
 	HIGHLIGHTS,
 	MIDTONES,
 	SHADOWS,
 	UNCHANGED,
-	type Place,
+	type Element,
+	type How,
 	type Row,
 	type Rows,
+	type Step,
 	type Tones,
 	type What,
 	type Where
@@ -105,48 +106,83 @@ export const feather = slider({
 	default: 0.5
 });
 
-/** Kinds of row that can be added. A place starts where the user then draws it. */
-export const additions = {
-	shadows: { name: 'Shadows', where: { ...EVERYWHERE, tones: SHADOWS } },
-	midtones: { name: 'Midtones', where: { ...EVERYWHERE, tones: MIDTONES } },
-	highlights: { name: 'Highlights', where: { ...EVERYWHERE, tones: HIGHLIGHTS } },
-	gradient: {
-		name: 'Gradient',
-		where: { ...EVERYWHERE, place: { kind: 'gradient', from: [0.5, 0.2], to: [0.5, 0.6] } }
-	},
+/** What each way of combining is called. */
+export const hows: Record<How, string> = {
+	intersect: 'Intersect',
+	add: 'Add',
+	subtract: 'Subtract'
+};
+
+/** Elements that can be put into a row's where. A shape starts where the user then draws it. */
+export const elements = {
+	shadows: { name: 'Shadows', element: { kind: 'tones', ...SHADOWS } },
+	midtones: { name: 'Midtones', element: { kind: 'tones', ...MIDTONES } },
+	highlights: { name: 'Highlights', element: { kind: 'tones', ...HIGHLIGHTS } },
+	tones: { name: 'Tones', element: { kind: 'tones', ...ALL_TONES } },
+	gradient: { name: 'Gradient', element: { kind: 'gradient', from: [0.5, 0.2], to: [0.5, 0.6] } },
 	ellipse: {
 		name: 'Ellipse',
-		where: {
-			...EVERYWHERE,
-			place: { kind: 'ellipse', centre: [0.5, 0.5], radii: [0.2, 0.2], angle: 0, feather: 0.5 }
-		}
+		element: { kind: 'ellipse', centre: [0.5, 0.5], radii: [0.2, 0.2], angle: 0, feather: 0.5 }
 	}
-} as const satisfies Record<string, { name: string; where: Where }>;
+} as const satisfies Record<string, { name: string; element: Element }>;
 
-export type Addition = keyof typeof additions;
+export type ElementKind = keyof typeof elements;
 
-export function added(rows: Rows, kind: Addition): Rows {
-	const id = Math.max(...rows.map((row) => row.id)) + 1;
-	return [...rows, { id, ...additions[kind], what: UNCHANGED }];
+const nextId = (rows: Rows) => Math.max(...rows.map((row) => row.id)) + 1;
+
+/** A new row over the whole picture, or starting from one element. */
+export function added(rows: Rows, kind: ElementKind | 'everywhere'): Rows {
+	const fresh: Row =
+		kind === 'everywhere'
+			? { id: nextId(rows), name: 'Modification', where: [], what: UNCHANGED }
+			: {
+					id: nextId(rows),
+					name: elements[kind].name,
+					where: [{ how: 'intersect', element: elements[kind].element }],
+					what: UNCHANGED
+				};
+	return [...rows, fresh];
 }
 
-/** The first row is the whole picture and stays. */
-export const removed = (rows: Rows, id: number): Rows => {
+const refersTo = (id: number) => (step: Step) =>
+	step.element.kind === 'area' && step.element.row === id;
+
+/**
+ * The rows without row `id`, and without the steps that used its area. The
+ * first row is the whole picture and stays.
+ */
+export function removed(rows: Rows, id: number): Rows {
 	const [whole, ...rest] = rows;
-	return [whole, ...rest.filter((row) => row.id !== id)];
-};
+	const kept = rest
+		.filter((row) => row.id !== id)
+		.map((row) => ({ ...row, where: row.where.filter((step) => !refersTo(id)(step)) }));
+	return [whole, ...kept];
+}
 
 const replaced = (rows: Rows, id: number, change: (row: Row) => Row): Rows =>
 	rows.map((row) => (row.id === id ? change(row) : row)) as unknown as Rows;
 
+export const renamed = (rows: Rows, id: number, name: string): Rows =>
+	replaced(rows, id, (row) => ({ ...row, name }));
+
 export const withWhat = (rows: Rows, id: number, change: Partial<What>): Rows =>
 	replaced(rows, id, (row) => ({ ...row, what: { ...row.what, ...change } }));
 
-export const withWhere = (rows: Rows, id: number, change: Partial<Where>): Rows =>
-	replaced(rows, id, (row) => ({ ...row, where: { ...row.where, ...change } }));
+export const withWhere = (rows: Rows, id: number, change: (where: Where) => Where): Rows =>
+	replaced(rows, id, (row) => ({ ...row, where: change(row.where) }));
+
+export const withStep = (where: Where, index: number, change: Partial<Step>): Where =>
+	where.map((step, i) => (i === index ? { ...step, ...change } : step));
+
+/** Rows whose area row `id` may use: those before it, so no area can depend on itself. */
+export const usable = (rows: Rows, id: number): readonly Row[] =>
+	rows.slice(
+		1,
+		rows.findIndex((row) => row.id === id)
+	);
 
 /** A tone range with one edge moved; the other edge gives way so the range stays a range. */
-export function withTone(tones: Tones, edge: keyof Tones, value: number): Tones {
+export function withTone<T extends Tones>(tones: T, edge: keyof Tones, value: number): T {
 	const moved = { ...tones, [edge]: value };
 	return {
 		...moved,
@@ -155,28 +191,43 @@ export function withTone(tones: Tones, edge: keyof Tones, value: number): Tones 
 	};
 }
 
-/** A place of the same kind as `place`, drawn from one image point to another (as fractions). */
-export function drawn(place: Place, from: Vec2, to: Vec2, aspect: number): Place {
-	switch (place.kind) {
-		case 'everywhere':
-			return place;
+/** `element`, if it is a shape, drawn from one image point to another (as fractions). */
+export function drawn(element: Element, from: Vec2, to: Vec2, aspect: number): Element {
+	switch (element.kind) {
 		case 'gradient':
-			return { ...place, from, to };
+			return { ...element, from, to };
 		case 'ellipse': {
 			// Lengths are fractions of the width; heights are scaled to match.
 			const radius = Math.hypot(to[0] - from[0], (to[1] - from[1]) / aspect);
-			return { ...place, centre: from, radii: [radius, radius] };
+			return { ...element, centre: from, radii: [radius, radius] };
 		}
+		default:
+			return element;
 	}
 }
 
-/** A short description of where a row applies, for the list. */
-export function describe({ place, outside, tones }: Where): string {
-	const parts: string[] = [];
-	if (place.kind !== 'everywhere') parts.push(outside ? `outside ${place.kind}` : place.kind);
-	const [low, high] = [tones.low > DARKEST, tones.high < BRIGHTEST];
-	if (low && high) parts.push(`tones ${tones.low} to ${tones.high}`);
-	else if (low) parts.push(`tones above ${tones.low}`);
-	else if (high) parts.push(`tones below ${tones.high}`);
-	return parts.join(' · ');
+export const isShape = (element: Element) =>
+	element.kind === 'gradient' || element.kind === 'ellipse';
+
+/** An element in a few words. */
+export function named(element: Element, rows: Rows): string {
+	switch (element.kind) {
+		case 'tones': {
+			const [low, high] = [element.low > DARKEST, element.high < BRIGHTEST];
+			if (low && high) return `tones ${element.low} to ${element.high}`;
+			if (low) return `tones above ${element.low}`;
+			if (high) return `tones below ${element.high}`;
+			return 'all tones';
+		}
+		case 'area':
+			return `area of ${rows.find((row) => row.id === element.row)!.name}`;
+		default:
+			return element.kind;
+	}
 }
+
+const signs: Record<How, string> = { intersect: '', add: '+ ', subtract: '− ' };
+
+/** Where a row applies, in a few words, for the list. */
+export const describe = (where: Where, rows: Rows): string =>
+	where.map(({ how, element }) => `${signs[how]}${named(element, rows)}`).join(' · ');

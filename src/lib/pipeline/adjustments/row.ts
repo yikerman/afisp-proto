@@ -4,8 +4,7 @@ import type { Vec2 } from '../../math/matrix';
  * A part of the picture chosen by position. Points are fractions of the image's
  * width and height; lengths are fractions of its width.
  */
-export type Place =
-	| { readonly kind: 'everywhere' }
+export type Shape =
 	/** Full at `from`, fading to nothing at `to`, constant across the line between them. */
 	| { readonly kind: 'gradient'; readonly from: Vec2; readonly to: Vec2 }
 	| {
@@ -33,13 +32,32 @@ export const DARKEST = -16;
 export const BRIGHTEST = 16;
 export const ALL_TONES: Tones = { low: DARKEST, high: BRIGHTEST, softness: 0 };
 
-/** Where an adjustment applies: a place, limited to a range of tones. */
-export interface Where {
-	readonly place: Place;
-	/** The rest of the picture instead of the place. */
-	readonly outside: boolean;
-	readonly tones: Tones;
+/** Something that selects part of the picture, as a weight from 0 to 1 at each pixel. */
+export type Element =
+	| Shape
+	| ({ readonly kind: 'tones' } & Tones)
+	/** Where another row applies. The row must come earlier in the list. */
+	| { readonly kind: 'area'; readonly row: number };
+
+/** How an element changes the area built so far. */
+export type How =
+	/** Keep only what the element also selects. */
+	| 'intersect'
+	/** Extend by what the element selects. */
+	| 'add'
+	/** Remove what the element selects. */
+	| 'subtract';
+
+export interface Step {
+	readonly how: How;
+	readonly element: Element;
 }
+
+/**
+ * Where an adjustment applies: the whole picture, changed by each step in turn.
+ * No steps is the whole picture.
+ */
+export type Where = readonly Step[];
 
 /** What an adjustment does where it applies. Each setting is zero-effect at the value noted. */
 export interface What {
@@ -63,7 +81,7 @@ export const UNCHANGED: What = {
 	saturation: 1
 };
 
-/** One adjustment: where, and what. */
+/** One modification of the picture: where, and what. */
 export interface Row {
 	readonly id: number;
 	readonly name: string;
@@ -74,11 +92,7 @@ export interface Row {
 /** The adjustments of an edit. There is always at least the whole picture. */
 export type Rows = readonly [Row, ...Row[]];
 
-export const EVERYWHERE: Where = {
-	place: { kind: 'everywhere' },
-	outside: false,
-	tones: ALL_TONES
-};
+export const EVERYWHERE: Where = [];
 
 // The three tone ranges meet at middle grey with matching soft edges, so equal
 // settings on all three are the same as that setting on the whole picture.

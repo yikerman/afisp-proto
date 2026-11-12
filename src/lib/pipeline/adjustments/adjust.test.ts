@@ -5,11 +5,13 @@ import { download, upload, type Image, type Size } from '../../gpu/image';
 import { measure, type Reference } from '../reference';
 import { adjust } from './adjust';
 import {
+	ALL_TONES,
 	EVERYWHERE,
 	HIGHLIGHTS,
 	MIDTONES,
 	SHADOWS,
 	UNCHANGED,
+	type Element,
 	type Row,
 	type Rows,
 	type Tones,
@@ -52,7 +54,8 @@ const row = (where: Where, what: Partial<What>): Row => ({
 	what: { ...UNCHANGED, ...what }
 });
 const whole = (what: Partial<What>) => row(EVERYWHERE, what);
-const toned = (tones: Tones, what: Partial<What>) => row({ ...EVERYWHERE, tones }, what);
+const only = (element: Element): Where => [{ how: 'intersect', element }];
+const toned = (tones: Tones, what: Partial<What>) => row(only({ kind: 'tones', ...tones }), what);
 
 const read = async (image: Image<'scene'>) => new Float16Array(await download(gpu, image));
 const graded = (rows: Rows, on = reference) => read(adjust(gpu, on, rows));
@@ -133,12 +136,17 @@ test('saturation zero gives neutral pixels', async () => {
 	}
 });
 
+const gradient: Element = { kind: 'gradient', from: [0.25, 0.5], to: [0.75, 0.5] };
+const ellipse: Element = {
+	kind: 'ellipse',
+	centre: [0.5, 0.5],
+	radii: [0.2, 0.2],
+	angle: 0,
+	feather: 0.5
+};
+
 test('a gradient applies fully at its start and not at all past its end', async () => {
-	const where: Where = {
-		...EVERYWHERE,
-		place: { kind: 'gradient', from: [0.25, 0.5], to: [0.75, 0.5] }
-	};
-	const result = await graded([row(where, { lightness: 1 })]);
+	const result = await graded([row(only(gradient), { lightness: 1 })]);
 	const scene = await read(reference.scene);
 	const gain = (x: number, y: number) => {
 		const i = (y * size.width + x) * 4 + 1;
@@ -150,18 +158,45 @@ test('a gradient applies fully at its start and not at all past its end', async 
 	expect(gain(16, 12)).toBeLessThan(1.8);
 });
 
-test('outside an ellipse is the rest of the picture', async () => {
-	const place = {
+test('an area and the picture with it subtracted make the whole picture', async () => {
+	const what = { lightness: 1 };
+	const inside = row(only(ellipse), what);
+	const outside = row([{ how: 'subtract', element: ellipse }], what);
+	expectClose(await graded([inside, outside]), await graded([whole(what)]), ROUNDING);
+});
+
+test('adding an element to itself, or intersecting with every tone, changes nothing', async () => {
+	const what = { lightness: 1 };
+	const plain = await graded([row(only(gradient), what)]);
+	const hard: Element = {
 		kind: 'ellipse',
 		centre: [0.5, 0.5],
-		radii: [0.2, 0.2],
+		radii: [0.3, 0.3],
 		angle: 0,
-		feather: 0.5
-	} as const;
+		feather: 0
+	};
+	// Only where the weight is 0 or 1 is adding an area to itself the same area.
+	expectClose(
+		await graded([row([...only(hard), { how: 'add', element: hard }], what)]),
+		await graded([row(only(hard), what)]),
+		ROUNDING
+	);
+	expectClose(
+		await graded([row([...only(gradient), ...only({ kind: 'tones', ...ALL_TONES })], what)]),
+		plain,
+		ROUNDING
+	);
+});
+
+test('a row can use the area of an earlier row', async () => {
 	const what = { lightness: 1 };
-	const inside = row({ ...EVERYWHERE, place }, what);
-	const outside = row({ ...EVERYWHERE, place, outside: true }, what);
-	expectClose(await graded([inside, outside]), await graded([whole(what)]), ROUNDING);
+	const sky = row(only(gradient), {});
+	const reusing = row([{ how: 'intersect', element: { kind: 'area', row: sky.id } }], what);
+	expectClose(
+		await graded([whole({}), sky, reusing]),
+		await graded([row(only(gradient), what)]),
+		ROUNDING
+	);
 });
 
 test('detail scales fine variation and leaves flat areas alone', async () => {

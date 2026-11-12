@@ -3,7 +3,6 @@
 	import type { Size } from '../gpu/image';
 	import { present } from '../gpu/pass';
 	import type { Vec2 } from '../math/matrix';
-	import type { Row } from '../pipeline/adjustments/row';
 	import type { Edit, Renderer } from '../pipeline/render';
 	import { histogram, type Histogram } from '../view/histogram';
 	import { fit, imagePoint, resample, type View } from '../view/resample';
@@ -20,8 +19,8 @@
 		onpick: ((at: Vec2) => void) | null;
 		/** When set, a drag on the picture reports its start and current image points. */
 		ondraw: ((from: Vec2, to: Vec2) => void) | null;
-		/** The row whose area is marked on the picture, if any. */
-		marked: Row | null;
+		/** Id of the row whose area is marked on the picture, if any. */
+		marked: number | null;
 	}
 	let { gpu, renderer, edit, image, onhistogram, onpick, ondraw, marked }: Props = $props();
 
@@ -121,7 +120,7 @@
 			canvas
 				.getContext('bitmaprenderer')!
 				.transferFromImageBitmap(
-					present(gpu, resample(area ? renderer.markArea(current, area) : display, shown))
+					present(gpu, resample(area === null ? display : renderer.markArea(current, area), shown))
 				);
 			void histogram(gpu, display).then(onhistogram);
 		});

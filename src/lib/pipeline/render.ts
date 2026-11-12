@@ -9,7 +9,7 @@ import {
 	type ManualLens
 } from '../raw/lensData';
 import { adjust, markArea } from './adjustments/adjust';
-import type { Row, Rows } from './adjustments/row';
+import type { Rows } from './adjustments/row';
 import { displayTransform } from './display/transform';
 import { destroyReference, measure } from './reference';
 import { calibrate, type Calibration } from './restoration/calibrate';
@@ -44,8 +44,8 @@ export interface Edit extends Restoration {
 export interface Renderer {
 	/** The returned image is valid until the next call. */
 	render(edit: Edit): Image<'display'>;
-	/** The last rendered image with the area `row` applies to marked; valid until the next call. */
-	markArea(restoration: Restoration, row: Row): Image<'display'>;
+	/** The last rendered image with the area of one of the edit's rows marked; valid until the next call. */
+	markArea(edit: Edit, row: number): Image<'display'>;
 	/** Mean scene colour of the restored image over a square of `radius` pixels around `at`. */
 	sample(restoration: Restoration, at: Vec2, radius: number): Promise<Vec3>;
 	destroy(): void;
@@ -106,9 +106,10 @@ export function createRenderer(gpu: Gpu, raw: RawFile): Renderer {
 			graded.destroy();
 			return display;
 		},
-		markArea({ lens, calibration }, row) {
+		markArea({ lens, calibration, rows }, row) {
 			marked?.destroy();
-			marked = markArea(gpu, reference.get({ lens, calibration }), row, display!);
+			const index = rows.findIndex((each) => each.id === row);
+			marked = markArea(gpu, reference.get({ lens, calibration }), rows, index, display!);
 			return marked;
 		},
 		async sample({ lens, calibration }, [x, y], radius) {

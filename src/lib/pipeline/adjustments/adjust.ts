@@ -16,9 +16,14 @@ interface Weights {
 	readonly uniforms: Uniforms;
 }
 
-/** `weight_0` … `weight_{n-1}`: one function per row. */
+/** `weight_0` … `weight_{n-1}`: one function per row, each able to call those before it. */
 function weights(rows: readonly Row[], reference: Reference): Weights {
-	const each = rows.map((row, k) => weightFunction(`weight_${k}`, row.where, reference.scene));
+	const areas = new Map<number, string>();
+	const each = rows.map((row, k) => {
+		const generated = weightFunction(`weight_${k}`, row.where, reference.scene, areas);
+		areas.set(row.id, `weight_${k}`);
+		return generated;
+	});
 	return {
 		glsl: [referenceGlsl, whereGlsl, ...each.map((w) => w.glsl)].join('\n'),
 		uniforms: Object.assign({}, ...each.map((w) => w.uniforms))
@@ -113,19 +118,20 @@ vec4 pixel(ivec2 p) {
 	return graded;
 }
 
-/** `display` with the area a row applies to marked in colour. */
+/** `display` with the area that row `index` of `rows` applies to marked in colour. */
 export function markArea(
 	gpu: Gpu,
 	reference: Reference,
-	row: Row,
+	rows: Rows,
+	index: number,
 	display: Image<'display'>
 ): Image<'display'> {
-	const where = weights([row], reference);
+	const where = weights(rows, reference);
 	return run<'display'>(gpu, {
 		label: 'mark area',
 		glsl: /* glsl */ `${where.glsl}
 vec4 pixel(ivec2 p) {
-	float w = weight_0(p, reference_at(p));
+	float w = weight_${index}(p, reference_at(p));
 	return vec4(mix(texelFetch(display, p, 0).rgb, vec3(0.95, 0.25, 0.2), 0.6 * w), 1);
 }`,
 		textures: { ...referenceTextures(reference), display: display as Texture },

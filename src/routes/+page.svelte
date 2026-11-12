@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import { withoutAdjustments } from '#lib/edit/controls.js';
-	import { drawn, withWhere } from '#lib/edit/rows.js';
+	import { drawn, withStep, withWhere } from '#lib/edit/rows.js';
 	import { toEdit } from '#lib/edit/edit.js';
 	import type { Item } from '#lib/edit/items.js';
 	import type { Vec2 } from '#lib/math/matrix.js';
@@ -44,21 +44,21 @@
 	// What the Adjustments panel is showing; none of it is part of the edit.
 	let selected = $state(0);
 	let marking = $state(false);
-	let drawing = $state(false);
+	/** The element of the selected modification that a drag on the picture draws. */
+	let drawing = $state<number | null>(null);
 	const adjusting = $derived(session.screen === 'adjustments');
-	const selectedRow = $derived(session.edit.rows.find((row) => row.id === selected) ?? null);
 
 	function draw(from: Vec2, to: Vec2) {
 		const { width, height } = imageSize(session.file!.raw.meta);
-		const row = selectedRow!;
-		const place = drawn(
-			row.where.place,
+		const row = session.edit.rows.find((each) => each.id === selected)!;
+		const element = drawn(
+			row.where[drawing!].element,
 			[from[0] / width, from[1] / height],
 			[to[0] / width, to[1] / height],
 			width / height
 		);
-		session.set(`${row.name}: draw`, place, {
-			rows: withWhere(session.edit.rows, row.id, { place })
+		session.set(`${row.name}: draw`, element, {
+			rows: withWhere(session.edit.rows, row.id, (where) => withStep(where, drawing!, { element }))
 		});
 	}
 	const next = $derived(screens[screens.findIndex(([screen]) => screen === session.screen) + 1]);
@@ -89,7 +89,7 @@
 
 	function go(screen: Screen) {
 		armed = null;
-		drawing = false;
+		drawing = null;
 		session.go(screen);
 	}
 
@@ -168,8 +168,8 @@
 				image={imageSize(session.file.raw.meta)}
 				onhistogram={(counts) => (histogram = counts)}
 				onpick={armed && ((at) => pick(armed!, at))}
-				ondraw={adjusting && drawing && selectedRow ? draw : null}
-				marked={adjusting && (marking || drawing) ? selectedRow : null}
+				ondraw={adjusting && drawing !== null ? draw : null}
+				marked={adjusting && (marking || drawing !== null) ? selected : null}
 			/>
 			<aside>
 				<div class="scope"><HistogramView {histogram} /></div>
@@ -197,15 +197,12 @@
 					<RowsPanel
 						rows={session.edit.rows}
 						{selected}
-						onselect={(id) => {
-							selected = id;
-							drawing = false;
-						}}
+						onselect={(id) => (selected = id)}
 						onchange={(action, value, rows) => session.set(action, value, { rows })}
 						{marking}
 						onmark={(on) => (marking = on)}
 						{drawing}
-						ondrawing={(on) => (drawing = on)}
+						ondrawing={(element) => (drawing = element)}
 					/>
 				{:else}
 					<Panel

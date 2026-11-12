@@ -68,11 +68,12 @@ feature easier; raise the conflict instead.
   an optimisation keyed on its full inputs.
 - **Stage contracts are types.** An `Image<E>` carries what its numbers mean.
   A stage accepts and returns specific encodings.
-- **An adjustment is a row: where, and what.** Where is always the same
-  shape, a place limited to a range of tones (and, later, of colours), any
-  part of which can be "everything". What is the same few settings on every
-  row. There is one way to write a given area, and no tool that works on some
-  rows and not others. The first row is the whole picture and stays.
+- **An adjustment is a row: where, and what.** Where starts as the whole
+  picture and is changed by a list of elements, each of which intersects with,
+  adds to or subtracts from the area so far. An element is a range of tones, a
+  shape, or the area of an earlier row. No elements is the whole picture. What
+  is the same few settings on every row, so no tool works on some rows and not
+  others. The first row is the whole picture and stays.
 - **Where reads only the reference** (the restored scene, its tones in stops
   and its smoothed tones) and the position. Nothing in Adjustments can move
   where another row applies. The evaluator binds nothing else.
