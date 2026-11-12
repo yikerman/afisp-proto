@@ -17,14 +17,25 @@
 	const pointer = travel();
 
 	// The point moves with the pointer instead of jumping to it, as on a grading wheel.
+	// The position during a drag is kept here: several pointer events can arrive
+	// before `value` reflects the first, and each must build on the one before.
+	let dragged: Vec2 = [0, 0];
+
+	function press(event: PointerEvent) {
+		pad.setPointerCapture(event.pointerId);
+		pointer.start(event);
+		dragged = value;
+	}
+
 	function drag(event: PointerEvent) {
 		if (!pad.hasPointerCapture(event.pointerId)) return;
 		const perPixel = (spec.radius / FACE) * (event.shiftKey ? 0.1 : 1);
 		const [dx, dy] = pointer.step(event);
-		const x = value[0] + dx * perPixel;
-		const y = value[1] - dy * perPixel;
+		const x = dragged[0] + dx * perPixel;
+		const y = dragged[1] - dy * perPixel;
 		const overshoot = Math.max(1, Math.hypot(x, y) / spec.radius);
-		onchange([x / overshoot, y / overshoot]);
+		dragged = [x / overshoot, y / overshoot];
+		onchange(dragged);
 	}
 </script>
 
@@ -38,10 +49,7 @@
 			viewBox="{-RADIUS} {-RADIUS} {RADIUS * 2} {RADIUS * 2}"
 			role="application"
 			aria-label={spec.label}
-			onpointerdown={(event) => {
-				pad.setPointerCapture(event.pointerId);
-				pointer.start(event);
-			}}
+			onpointerdown={press}
 			onpointermove={drag}
 			ondblclick={() => onchange(initial)}
 		>

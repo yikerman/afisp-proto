@@ -47,7 +47,7 @@ const DARKEST_STOPS = -16;
 const stopsGlsl = /* glsl */ `
 vec4 pixel(ivec2 p) {
 	float luminance = dot(texelFetch(scene, p, 0).rgb, ${glslVector(rec2020Luminance)});
-	return vec4(max(log2(luminance / ${glslFloat(MIDDLE_GREY)}), ${glslFloat(DARKEST_STOPS)}), 0, 0, 1);
+	return vec4(log2(max(luminance, ${glslFloat(MIDDLE_GREY * 2 ** DARKEST_STOPS)}) / ${glslFloat(MIDDLE_GREY)}), 0, 0, 1);
 }`;
 
 // Smoothing is a guided filter with the image as its own guide (He, Sun & Tang,
