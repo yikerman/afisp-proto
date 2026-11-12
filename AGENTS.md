@@ -48,15 +48,21 @@ These are what the prototype exists to test. Do not weaken them to make a
 feature easier; raise the conflict instead.
 
 - **A control's stage is decided by what its value is a judgement about.**
-  Restoration holds judgements about physical fact: the light, what an
-  observer at the scene saw as middle grey and as white, the lens, the sensor.
-  Intention can enter (a night scene was dark and stays dark), but the value
-  is defended by pointing at the scene, and an instrument there could in
-  principle settle it. Adjustments hold judgements about the look, which are
-  purely aesthetic. The display transform holds facts about the medium. A
-  control that is partly both is two controls. Because a fact about the scene
-  does not change with the look, nothing done in Adjustments should ever be a
-  reason to return to Restoration.
+  Restoration holds judgements about the scene: how it was. That is the lens
+  and the sensor, which have measurable answers, and the scene as seen by
+  someone standing there, which does not: white balance is what looked white
+  and exposure is what looked middle grey. A sunset stays warm and a night
+  stays dark. These are still judgements of fact, defended by "that is how it
+  was" and not by "I prefer it", but only the photographer can make them,
+  which is why developing a RAW file is a subjective process. The measured
+  answer (a grey card comes out neutral and on middle grey) is the starting
+  estimate that defaults and pickers give, not the definition.
+  Adjustments hold judgements about the look, which are purely aesthetic. The
+  display transform holds facts about the medium. A control that is partly
+  both is two controls: removing lens vignetting is restoration, adding a
+  vignette is a look. Crop is a look. Because how the scene was does not
+  change with the look, nothing done in Adjustments should ever be a reason to
+  return to Restoration.
 - **One pure function.** `display = transform(adjust(restore(raw)))`, of the
   file and one immutable edit value. Remembering a result is allowed only as
   an optimisation keyed on its full inputs.

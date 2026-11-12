@@ -30,12 +30,14 @@ state, in three stages with fixed contracts between them:
 raw --restoration--> scene --adjustments--> graded scene --display transform--> output
 ```
 
-1. **Restoration** undoes the camera. Its parameters have a right answer given
-   the data (demosaicing, lens correction, colour calibration) and are
-   automatic, or they calibrate the scene (white balance, exposure as the
-   placement of middle grey). Its output is a scene-linear image that is then
-   frozen as the reference.
-2. **Adjustments** are the creative edits. Every tonal zone and mask is
+1. **Restoration** recovers the scene as it was. Some of its parameters have
+   a measurable answer (demosaicing, lens correction, colour calibration) and
+   are automatic. The others say how the scene looked to someone standing
+   there: white balance is what looked white, exposure is what looked middle
+   grey. Those are judgements only the photographer can make, but they are
+   judgements of fact, not of taste. Its output is a scene-linear image that
+   is then frozen as the reference.
+2. **Adjustments** are the look: purely aesthetic choices. Every tonal zone and mask is
    computed from the reference image only, never from the result of another
    adjustment, so adjustments cannot move each other's targets. Tone changes
    are exposure offsets in stops that add up, so their order does not matter.
