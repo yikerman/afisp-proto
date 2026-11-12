@@ -57,10 +57,7 @@ interface Layout {
 	readonly type: GLenum;
 	/** The packed array type over `channels` values per texel. */
 	readonly packed: (length: number) => Pixels;
-	/**
-	 * `readPixels` type, with format RGBA(_INTEGER): the one combination every
-	 * implementation accepts for the format's class (OpenGL ES 3.0.6, 4.3.2).
-	 */
+	/** `readPixels` type with format RGBA(_INTEGER), which every implementation accepts. */
 	readonly readType: GLenum;
 	readonly read: (length: number) => Read;
 }
@@ -225,9 +222,55 @@ async function finished(gl: WebGL2RenderingContext): Promise<void> {
 	gl.deleteSync(sync);
 }
 
-// Readback goes through RGBA at up to 4 bytes a channel, so a full-size image would need
-// a staging buffer of several hundred MB; strips bound it.
+// Bounds the pixel pack buffer: a full-size image read as RGBA float is several hundred MB.
 const STRIP_BYTES = 64 << 20;
+
+interface ReadPixels {
+	readonly format: GLenum;
+	readonly type: GLenum;
+	/** Values per texel and bytes per value, as read. */
+	readonly values: number;
+	readonly bytes: number;
+}
+
+const nativeReads = new WeakMap<Gpu, Map<Format, boolean>>();
+
+/**
+ * The `readPixels` format and type for a texture of `format` attached to the framebuffer: its
+ * own, when the implementation offers to return it as stored, which spares a conversion and up
+ * to four times the transfer; otherwise RGBA at 32 (or 8) bits a value, which every
+ * implementation accepts for the format's class (OpenGL ES 3.0.6, 4.3.2).
+ */
+function readPixelsOf(gpu: Gpu, format: Format): ReadPixels {
+	const { gl } = gpu;
+	const layout = layouts[format];
+	let known = nativeReads.get(gpu);
+	if (!known) nativeReads.set(gpu, (known = new Map()));
+	let native = known.get(format);
+	if (native === undefined) {
+		native =
+			// Workaround: ANGLE's OpenGL backend (Chromium 156) offers RED_INTEGER/UNSIGNED_SHORT
+			// for R16UI and then loses the context reading it ("not handled by RGBA16 readPixels
+			// workaround", FramebufferGL.cpp). Delete the exclusion when that read works.
+			format !== 'R16UI' &&
+			gl.getParameter(gl.IMPLEMENTATION_COLOR_READ_FORMAT) === layout.format &&
+			gl.getParameter(gl.IMPLEMENTATION_COLOR_READ_TYPE) === layout.type;
+		known.set(format, native);
+	}
+	return native
+		? {
+				format: layout.format,
+				type: layout.type,
+				values: layout.channels,
+				bytes: layout.bytes / layout.channels
+			}
+		: {
+				format: format === 'R16UI' ? gl.RGBA_INTEGER : gl.RGBA,
+				type: layout.readType,
+				values: 4,
+				bytes: layout.readType === gl.UNSIGNED_BYTE ? 1 : 4
+			};
+}
 
 /** Tightly packed pixels of a region of the texture (all of it by default), in its format. */
 export async function download(
@@ -237,32 +280,39 @@ export async function download(
 ): Promise<ArrayBuffer> {
 	const { gl, framebuffer } = gpu;
 	const layout = layouts[image.format];
-	const readFormat = image.format === 'R16UI' ? gl.RGBA_INTEGER : gl.RGBA;
-	const rowValues = region.width * 4;
-	const valueBytes = layout.readType === gl.UNSIGNED_BYTE ? 1 : 4;
-	const stripRows = Math.min(
-		region.height,
-		Math.max(1, Math.floor(STRIP_BYTES / (rowValues * valueBytes)))
-	);
-	const pixelValues = region.width * layout.channels;
-	const packed = layout.packed(pixelValues * region.height);
-	const staging = layout.read(stripRows * rowValues);
-	const buffer = gl.createBuffer();
-	gl.bindBuffer(gl.PIXEL_PACK_BUFFER, buffer);
-	gl.bufferData(gl.PIXEL_PACK_BUFFER, staging.byteLength, gl.STREAM_READ);
-	for (let row = 0; row < region.height; row += stripRows) {
-		const rows = Math.min(stripRows, region.height - row);
+	const attach = () => {
 		gl.bindFramebuffer(gl.FRAMEBUFFER, framebuffer);
 		gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, image.texture, 0);
+	};
+	attach();
+	const read = readPixelsOf(gpu, image.format);
+	// Read as stored: no conversion.
+	const native = read.values === layout.channels && read.type === layout.type;
+	const rowBytes = region.width * read.values * read.bytes;
+	const stripRows = Math.min(region.height, Math.max(1, Math.floor(STRIP_BYTES / rowBytes)));
+	const pixelValues = region.width * layout.channels;
+	const packed = layout.packed(pixelValues * region.height);
+	const staging = layout.read(native ? 0 : stripRows * region.width * 4);
+	const buffer = gl.createBuffer();
+	gl.bindBuffer(gl.PIXEL_PACK_BUFFER, buffer);
+	gl.bufferData(gl.PIXEL_PACK_BUFFER, stripRows * rowBytes, gl.STREAM_READ);
+	for (let row = 0; row < region.height; row += stripRows) {
+		const rows = Math.min(stripRows, region.height - row);
+		attach();
 		gl.bindBuffer(gl.PIXEL_PACK_BUFFER, buffer);
-		gl.readPixels(region.x, region.y + row, region.width, rows, readFormat, layout.readType, 0);
+		gl.readPixels(region.x, region.y + row, region.width, rows, read.format, read.type, 0);
 		await finished(gl);
 		gl.bindBuffer(gl.PIXEL_PACK_BUFFER, buffer);
-		const read = staging.subarray(0, rows * rowValues);
-		gl.getBufferSubData(gl.PIXEL_PACK_BUFFER, 0, read);
 		const target = packed.subarray(row * pixelValues, (row + rows) * pixelValues);
-		if (layout.channels === 4) target.set(read);
-		else for (let i = 0; i < target.length; i++) target[i] = read[i * 4]!;
+		if (native) {
+			const bytes = new Uint8Array(target.buffer, target.byteOffset, target.byteLength);
+			gl.getBufferSubData(gl.PIXEL_PACK_BUFFER, 0, bytes);
+		} else {
+			const values = staging.subarray(0, rows * region.width * 4);
+			gl.getBufferSubData(gl.PIXEL_PACK_BUFFER, 0, values);
+			if (layout.channels === 4) target.set(values);
+			else for (let i = 0; i < target.length; i++) target[i] = values[i * 4]!;
+		}
 	}
 	gl.bindBuffer(gl.PIXEL_PACK_BUFFER, null);
 	gl.deleteBuffer(buffer);
