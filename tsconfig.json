@@ -2,24 +2,11 @@
 	"extends": "$app/tsconfig",
 	"compilerOptions": {
 		"strict": true,
-		"types": [
-			"$app/types",
-			"node",
-			"@webgpu/types"
-		],
+		"types": ["$app/types", "node", "@webgpu/types"],
 		"exactOptionalPropertyTypes": true,
 		"noImplicitOverride": true,
 		"noFallthroughCasesInSwitch": true,
-		"lib": [
-			"esnext",
-			"dom",
-			"dom.iterable"
-		]
+		"lib": ["esnext", "dom", "dom.iterable"]
 	},
-	"include": [
-		"src",
-		"vite.config.ts",
-		"prettier.config.js",
-		"eslint.config.js"
-	]
+	"include": ["src", "vite.config.ts", "prettier.config.js", "eslint.config.js"]
 }
