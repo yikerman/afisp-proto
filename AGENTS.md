@@ -68,9 +68,13 @@ feature easier; raise the conflict instead.
   an optimisation keyed on its full inputs.
 - **Stage contracts are types.** An `Image<E>` carries what its numbers mean.
   A stage accepts and returns specific encodings.
-- **Adjustments read only the reference.** Tone terms and masks receive the
-  reference (scene, stops, smoothed stops) and their parameters, never the
-  image being edited. The evaluator enforces this by what it binds.
+- **Zones and masks read only the reference.** Tone terms and masks receive
+  the reference (scene, stops, smoothed stops) and their parameters, never the
+  image being edited; the evaluator enforces this by what it binds. A colour
+  operation also receives the current pixel, and its zones still come from the
+  reference. A spatial module receives the graded image, by its signature and
+  not by any enforcement: local contrast acts on what the picture shows, so it
+  does see the other adjustments.
 - **Tone terms are exposure offsets in stops that add**, so their order does
   not matter. Tone works in log2 of scene-linear luminance, not in a
   perceptual space.
