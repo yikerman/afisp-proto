@@ -145,7 +145,7 @@ test('every renderable format holds what a pass writes, rounded to its precision
 			gpu,
 			run(gpu, {
 				label: 'unorm',
-				glsl: 'vec4 pixel(ivec2 p) { return vec4(float(p.x) / 255.0, float(p.y) / 255.0, 0.5, 1); }',
+				glsl: 'vec4 pixel(ivec2 p) { return vec4(float(p.x) / 255.0, float(p.y) / 255.0, 128.0 / 255.0, 1); }',
 				textures: {},
 				uniforms: {},
 				size: asymmetric,
