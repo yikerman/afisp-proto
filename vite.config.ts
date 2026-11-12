@@ -12,7 +12,10 @@ export default defineConfig({
 					filename.split(/[/\\]/).includes('node_modules') ? undefined : true
 			},
 			// The app is client-only (WebGPU); it ships as static files with one entry page.
-			adapter: adapter({ fallback: 'index.html' })
+			adapter: adapter({ fallback: 'index.html' }),
+			// A GitHub Pages project site lives under /<repository>; the deploy workflow sets
+			// BASE_PATH from the Pages configuration. SvelteKit validates the value.
+			paths: { base: (process.env.BASE_PATH ?? '') as '' | `/${string}` }
 		})
 	],
 	test: {

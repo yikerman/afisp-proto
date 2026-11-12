@@ -61,6 +61,12 @@ CHROMIUM=/usr/bin/chromium-browser npm test   # CHROMIUM is optional
 
 Tests run in a browser because the shaders need WebGPU.
 
+## Deployment
+
+Each push to `master` is built and published to GitHub Pages by
+`.github/workflows/deploy.yml`, at https://yikerman.github.io/afisp-proto/.
+`BASE_PATH` sets the path the site is served under; unset, it is `/`.
+
 ## References
 
 Problem and method
