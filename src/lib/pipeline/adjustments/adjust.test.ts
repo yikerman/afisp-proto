@@ -1,4 +1,5 @@
 import { beforeAll, expect, test } from 'vitest';
+import { MIDDLE_GREY } from '../../colour/spaces';
 import { acquireGpu, type Gpu } from '../../gpu/gpu';
 import { download, upload, type Image } from '../../gpu/image';
 import { measure, type Reference } from '../reference';
@@ -17,7 +18,7 @@ function scenePixels(): Float16Array {
 	const pixels = new Float16Array(size.width * size.height * 4);
 	for (let y = 0; y < size.height; y++) {
 		for (let x = 0; x < size.width; x++) {
-			const level = 0.1845 * 2 ** ((x / size.width) * 10 - 5) * (y < size.height / 2 ? 1 : 3);
+			const level = MIDDLE_GREY * 2 ** ((x / size.width) * 10 - 5) * (y < size.height / 2 ? 1 : 3);
 			pixels.set(
 				[level * 1.2, level, level * (0.5 + y / size.height), 1],
 				(y * size.width + x) * 4

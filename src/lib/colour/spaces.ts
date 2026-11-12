@@ -33,5 +33,8 @@ export const srgbToXyz: Matrix3 = rgbToXyz([0.64, 0.33], [0.3, 0.6], [0.15, 0.06
 /** Weights giving the luminance Y of a linear Rec.2020 colour. */
 export const rec2020Luminance: Vec3 = rec2020ToXyz[1];
 
-/** Scene luminance that the pipeline treats as middle grey. */
-export const MIDDLE_GREY = 0.1845;
+/**
+ * Scene luminance of middle grey: what exposure places the subject on, what
+ * stops are measured from, and what the display transform pivots about.
+ */
+export const MIDDLE_GREY = 0.18;

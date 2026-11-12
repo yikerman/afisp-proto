@@ -60,6 +60,9 @@ function upright(source: Size, turns: QuarterTurns) {
 	return { ...frames[turns], size };
 }
 
+/** Size of the upright image the pipeline produces for a file. */
+export const imageSize = (meta: RawMeta): Size => upright(meta.active, meta.orientation).size;
+
 const wgsl = /* wgsl */ `
 fn pixel(p: vec2i) -> vec4f {
 	let source = vec2i(u.origin + f32(p.x) * u.x_axis + f32(p.y) * u.y_axis);

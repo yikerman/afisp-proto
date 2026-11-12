@@ -1,0 +1,57 @@
+/* Neutral greys only: a coloured or bright surround shifts how the picture is judged. */
+:root {
+	--surround: #161616;
+	--panel: #222222;
+	--edge: #101010;
+	--field: #2e2e2e;
+	--track: #3a3a3a;
+	--fill: #767676;
+	--text: #bdbdbd;
+	--dim: #808080;
+	--bright: #ececec;
+	--row: 22px;
+	color-scheme: dark;
+	font:
+		12px/1.3 system-ui,
+		sans-serif;
+	font-variant-numeric: tabular-nums;
+}
+
+html,
+body {
+	height: 100%;
+	margin: 0;
+	background: var(--surround);
+	color: var(--text);
+	overflow: hidden;
+	user-select: none;
+}
+
+button,
+input {
+	font: inherit;
+	color: inherit;
+}
+
+button {
+	height: var(--row);
+	padding: 0 10px;
+	background: var(--field);
+	border: 1px solid var(--edge);
+	border-radius: 2px;
+}
+
+button:hover:not(:disabled) {
+	color: var(--bright);
+	background: var(--track);
+}
+
+button:disabled {
+	color: var(--dim);
+	opacity: 0.6;
+}
+
+:focus-visible {
+	outline: 1px solid var(--fill);
+	outline-offset: 0;
+}

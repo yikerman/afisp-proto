@@ -13,7 +13,7 @@ export type Encoding =
 	| 'mosaic'
 	/** Demosaiced camera RGB, same scale as 'mosaic'. */
 	| 'camera'
-	/** Scene-linear Rec.2020, non-negative, neutral is R=G=B, middle grey at Y = 0.1845. */
+	/** Scene-linear Rec.2020, non-negative, neutral is R=G=B, middle grey at Y = MIDDLE_GREY. */
 	| 'scene'
 	/** One channel: exposure in stops (log2 ratio). */
 	| 'stops'
@@ -24,7 +24,8 @@ export type Encoding =
 
 export type Image<E extends Encoding> = GPUTexture & { readonly [encoding]: E };
 
-export type Format = 'r16uint' | 'r32float' | 'rgba16float' | 'rgba32float' | 'rgba8unorm';
+export type Format =
+	'r16uint' | 'r32float' | 'rgba16float' | 'rgba32float' | 'rgba8unorm' | 'bgra8unorm';
 
 export interface Size {
 	readonly width: number;
@@ -56,7 +57,8 @@ const bytesPerPixel: Record<Format, number> = {
 	r32float: 4,
 	rgba16float: 8,
 	rgba32float: 16,
-	rgba8unorm: 4
+	rgba8unorm: 4,
+	bgra8unorm: 4
 };
 
 type PixelArray = Uint16Array | Float32Array | Float16Array | Uint8Array;

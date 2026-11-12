@@ -10,5 +10,8 @@ export async function acquireGpu(): Promise<Gpu> {
 		// Full-resolution processing: a sensor's long side must fit in one texture.
 		requiredLimits: { maxTextureDimension2D: adapter.limits.maxTextureDimension2D }
 	});
+	// Validation and out-of-memory errors are otherwise silent: the frame just stays black.
+	device.addEventListener('uncapturederror', (event) => console.error(event.error.message));
+	void device.lost.then((lost) => console.error(`GPU device lost: ${lost.message}`));
 	return { device };
 }
