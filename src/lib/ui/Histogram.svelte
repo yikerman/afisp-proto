@@ -32,7 +32,7 @@
 		display: block;
 		width: 100%;
 		height: 90px;
-		background: var(--surround);
+		background: var(--well);
 		border: 1px solid var(--edge);
 		box-sizing: border-box;
 	}

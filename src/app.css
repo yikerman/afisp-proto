@@ -1,6 +1,9 @@
-/* Neutral greys only: a coloured or bright surround shifts how the picture is judged. */
+/* Neutral greys only: a coloured surround shifts how the picture's colour is judged. */
 :root {
-	--surround: #161616;
+	/* Around the picture: middle grey as the display transform renders it, so the
+	   surround biases the judgement of tone neither way. */
+	--surround: #767676;
+	--well: #161616;
 	--panel: #222222;
 	--edge: #101010;
 	--field: #2e2e2e;
@@ -21,7 +24,7 @@ html,
 body {
 	height: 100%;
 	margin: 0;
-	background: var(--surround);
+	background: var(--panel);
 	color: var(--text);
 	overflow: hidden;
 	user-select: none;

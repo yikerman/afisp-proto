@@ -72,7 +72,8 @@
 	/* The canvas is sized from the frame, so it must not take part in sizing the frame. */
 	.frame {
 		position: relative;
-		margin: 12px;
+		border: 12px solid var(--surround);
+		background: var(--surround);
 	}
 	canvas {
 		position: absolute;
