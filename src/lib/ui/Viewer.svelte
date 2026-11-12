@@ -3,6 +3,7 @@
 	import type { Size } from '../gpu/image';
 	import { present } from '../gpu/pass';
 	import type { Vec2 } from '../math/matrix';
+	import type { Row } from '../pipeline/adjustments/row';
 	import type { Edit, Renderer } from '../pipeline/render';
 	import { histogram, type Histogram } from '../view/histogram';
 	import { fit, imagePoint, resample, type View } from '../view/resample';
@@ -17,8 +18,12 @@
 		onhistogram: (histogram: Histogram) => void;
 		/** When set, a click on the picture reports the image point instead of moving the view. */
 		onpick: ((at: Vec2) => void) | null;
+		/** When set, a drag on the picture reports its start and current image points. */
+		ondraw: ((from: Vec2, to: Vec2) => void) | null;
+		/** The row whose area is marked on the picture, if any. */
+		marked: Row | null;
 	}
-	let { gpu, renderer, edit, image, onhistogram, onpick }: Props = $props();
+	let { gpu, renderer, edit, image, onhistogram, onpick, ondraw, marked }: Props = $props();
 
 	const MAX_SCALE = 8;
 	let frame: HTMLDivElement;
@@ -56,17 +61,27 @@
 		zoomTo(view, Math.min(view.scale * 2 ** (-event.deltaY / 300), MAX_SCALE), pointer(event));
 	}
 
+	/** Where the drag that draws a place began, in image pixels. */
+	let drawnFrom: Vec2 | null = null;
+
 	function press(event: PointerEvent) {
 		if (!view) return;
-		if (onpick) onpick(imagePoint(view, pointer(event)));
-		else {
-			canvas.setPointerCapture(event.pointerId);
-			pan.start(event);
+		if (onpick) {
+			onpick(imagePoint(view, pointer(event)));
+			return;
 		}
+		canvas.setPointerCapture(event.pointerId);
+		pan.start(event);
+		drawnFrom = ondraw && imagePoint(view, pointer(event));
 	}
 
 	function drag(event: PointerEvent) {
-		if (!zoom || !canvas.hasPointerCapture(event.pointerId)) return;
+		if (!view || !canvas.hasPointerCapture(event.pointerId)) return;
+		if (ondraw && drawnFrom) {
+			ondraw(drawnFrom, imagePoint(view, pointer(event)));
+			return;
+		}
+		if (!zoom) return;
 		const perPixel = devicePixelRatio / zoom.scale;
 		const [dx, dy] = pan.step(event);
 		zoom = {
@@ -97,7 +112,7 @@
 	});
 
 	$effect(() => {
-		const [shown, current] = [view, edit];
+		const [shown, current, area] = [view, edit, marked];
 		if (!shown) return;
 		const request = requestAnimationFrame(() => {
 			canvas.width = shown.size.width;
@@ -105,7 +120,9 @@
 			const display = renderer.render(current);
 			canvas
 				.getContext('bitmaprenderer')!
-				.transferFromImageBitmap(present(gpu, resample(display, shown)));
+				.transferFromImageBitmap(
+					present(gpu, resample(area ? renderer.markArea(current, area) : display, shown))
+				);
 			void histogram(gpu, display).then(onhistogram);
 		});
 		return () => cancelAnimationFrame(request);
@@ -115,7 +132,7 @@
 <div class="frame" bind:this={frame}>
 	<canvas
 		bind:this={canvas}
-		class:picking={onpick}
+		class:picking={onpick || ondraw}
 		class:movable={zoom}
 		onpointerdown={press}
 		onpointermove={drag}

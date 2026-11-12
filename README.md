@@ -45,10 +45,11 @@ raw --restoration--> scene --adjustments--> graded scene --display transform--> 
    grey. Those are judgements only the photographer can make, but they are
    judgements of fact, not of taste. Its output is a scene-linear image that
    is then frozen as the reference.
-2. **Adjustments** are the look: purely aesthetic choices. Every tonal zone and mask is
-   computed from the reference image only, never from the result of another
-   adjustment, so adjustments cannot move each other's targets. Tone changes
-   are exposure offsets in stops that add up, so their order does not matter.
+2. **Adjustments** are the look: purely aesthetic choices. Each is a row
+   saying where and what. Where is a place and a range of tones, computed from
+   the reference image only, never from another adjustment, so adjustments
+   cannot move each other's targets. What is the same few settings on every
+   row. Rows add, so their order does not matter.
 3. **Display transform** is fixed and has no parameters. Preview and export
    use the same transform, so the export is what was seen.
 

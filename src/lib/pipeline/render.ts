@@ -8,8 +8,8 @@ import {
 	type LensCorrection,
 	type ManualLens
 } from '../raw/lensData';
-import { adjust } from './adjustments/adjust';
-import type { Instance } from './adjustments/module';
+import { adjust, markArea } from './adjustments/adjust';
+import type { Row, Rows } from './adjustments/row';
 import { displayTransform } from './display/transform';
 import { destroyReference, measure } from './reference';
 import { calibrate, type Calibration } from './restoration/calibrate';
@@ -31,7 +31,7 @@ export interface Restoration {
 
 /** Everything the picture depends on besides the RAW file. */
 export interface Edit extends Restoration {
-	readonly adjustments: readonly Instance[];
+	readonly rows: Rows;
 }
 
 /**
@@ -44,6 +44,8 @@ export interface Edit extends Restoration {
 export interface Renderer {
 	/** The returned image is valid until the next call. */
 	render(edit: Edit): Image<'display'>;
+	/** The last rendered image with the area `row` applies to marked; valid until the next call. */
+	markArea(restoration: Restoration, row: Row): Image<'display'>;
 	/** Mean scene colour of the restored image over a square of `radius` pixels around `at`. */
 	sample(restoration: Restoration, at: Vec2, radius: number): Promise<Vec3>;
 	destroy(): void;
@@ -93,15 +95,21 @@ export function createRenderer(gpu: Gpu, raw: RawFile): Renderer {
 		destroyReference
 	);
 	let display: Image<'display'> | undefined;
+	let marked: Image<'display'> | undefined;
 
 	return {
 		render(edit) {
-			const { lens, calibration, adjustments } = edit;
-			const graded = adjust(gpu, reference.get({ lens, calibration }), adjustments);
+			const { lens, calibration, rows } = edit;
+			const graded = adjust(gpu, reference.get({ lens, calibration }), rows);
 			display?.destroy();
 			display = displayTransform(gpu, graded);
 			graded.destroy();
 			return display;
+		},
+		markArea({ lens, calibration }, row) {
+			marked?.destroy();
+			marked = markArea(gpu, reference.get({ lens, calibration }), row, display!);
+			return marked;
 		},
 		async sample({ lens, calibration }, [x, y], radius) {
 			const { scene } = reference.get({ lens, calibration });
@@ -128,6 +136,7 @@ export function createRenderer(gpu: Gpu, raw: RawFile): Renderer {
 			corrected.release();
 			reference.release();
 			display?.destroy();
+			marked?.destroy();
 		}
 	};
 }

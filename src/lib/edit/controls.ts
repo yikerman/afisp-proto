@@ -1,5 +1,6 @@
 import { TEMPERATURE_RANGE } from '../colour/illuminant';
 import type { Vec2 } from '../math/matrix';
+import { EVERYWHERE, UNCHANGED, type Row, type Rows } from '../pipeline/adjustments/row';
 import type { LensChoice } from '../pipeline/render';
 
 /** The pipeline stage a control belongs to, which is also the screen it appears on. */
@@ -59,27 +60,14 @@ export const slider = (
 	...spec
 });
 
-const wheel = (label: string): Wheel => ({
-	widget: 'wheel',
-	stage: 'adjustments',
-	section: 'Colour balance',
-	label,
-	advanced: false,
-	radius: 0.1,
-	default: [0, 0]
-});
-
-export const [restoration, adjustments] = [
-	{ stage: 'restoration' },
-	{ stage: 'adjustments' }
-] as const;
+export const restoration = { stage: 'restoration' } as const;
 const lens = { ...restoration, section: 'Lens correction' } as const;
 const stops = { unit: 'EV', step: 0.01 };
-const ratio = { unit: '', step: 0.01 };
 
 /**
- * Every user control: the single table the edit state's type, the panels and
- * the session log are derived from.
+ * Every Restoration control: the table that part of the edit state's type, its
+ * panel and its log entries are derived from. Adjustments are rows, not a fixed
+ * set of controls; see `rows.ts`.
  */
 export const controls = {
 	exposure: slider({
@@ -156,76 +144,25 @@ export const controls = {
 		min: -10,
 		max: 10,
 		default: 0
-	}),
-
-	brightness: slider({
-		...adjustments,
-		section: 'Tone',
-		label: 'Brightness',
-		...stops,
-		min: -3,
-		max: 3,
-		default: 0
-	}),
-	shadows: slider({
-		...adjustments,
-		section: 'Tone',
-		label: 'Shadows',
-		...stops,
-		min: -2,
-		max: 2,
-		default: 0
-	}),
-	highlights: slider({
-		...adjustments,
-		section: 'Tone',
-		label: 'Highlights',
-		...stops,
-		min: -2,
-		max: 2,
-		default: 0
-	}),
-	contrast: slider({
-		...adjustments,
-		section: 'Tone',
-		label: 'Contrast',
-		...ratio,
-		min: 0.5,
-		max: 2,
-		default: 1
-	}),
-
-	saturation: slider({
-		...adjustments,
-		section: 'Colour',
-		label: 'Saturation',
-		...ratio,
-		min: 0,
-		max: 2,
-		default: 1
-	}),
-	balance: wheel('Global'),
-	balanceShadows: wheel('Shadows'),
-	balanceMidtones: wheel('Midtones'),
-	balanceHighlights: wheel('Highlights'),
-
-	localContrast: slider({
-		...adjustments,
-		section: 'Detail',
-		label: 'Local contrast',
-		...ratio,
-		min: -1,
-		max: 1,
-		default: 0
 	})
 } as const satisfies Record<string, Control>;
 
 export type ControlId = keyof typeof controls;
 
+/** The row every edit starts with and always keeps. */
+export const WHOLE_PICTURE: Row = {
+	id: 0,
+	name: 'Whole picture',
+	where: EVERYWHERE,
+	what: UNCHANGED
+};
+
 type Value<C extends Control> = C extends Slider ? number : C extends Choice<infer V> ? V : Vec2;
 
 /** The whole edit: one immutable value. */
-export type EditState = { readonly [K in ControlId]: Value<(typeof controls)[K]> };
+export type EditState = { readonly [K in ControlId]: Value<(typeof controls)[K]> } & {
+	readonly rows: Rows;
+};
 
 /** The nearest value a slider can hold: within its range, on its step. */
 export function admit(spec: Slider, value: number): number {
@@ -236,11 +173,15 @@ export function admit(spec: Slider, value: number): number {
 
 export const controlIds = Object.keys(controls) as ControlId[];
 
-const entries = <T>(value: (id: ControlId) => T) =>
-	Object.fromEntries(controlIds.map((id) => [id, value(id)]));
+export const defaults: EditState = {
+	...(Object.fromEntries(controlIds.map((id) => [id, controls[id].default])) as {
+		[K in ControlId]: Value<(typeof controls)[K]>;
+	}),
+	rows: [WHOLE_PICTURE]
+};
 
-export const defaults = entries((id) => controls[id].default) as EditState;
-
-/** `state` with the controls of one stage back at their values in `initial`. */
-export const withStageReset = (state: EditState, initial: EditState, stage: Stage): EditState =>
-	entries((id) => (controls[id].stage === stage ? initial[id] : state[id])) as EditState;
+/** `state` as Restoration alone leaves it: the adjustments it opened with. */
+export const withoutAdjustments = (state: EditState, initial: EditState): EditState => ({
+	...state,
+	rows: initial.rows
+});

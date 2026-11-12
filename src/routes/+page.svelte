@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
-	import { withStageReset } from '#lib/edit/controls.js';
+	import { withoutAdjustments } from '#lib/edit/controls.js';
+	import { drawn, withWhere } from '#lib/edit/rows.js';
 	import { toEdit } from '#lib/edit/edit.js';
 	import type { Item } from '#lib/edit/items.js';
 	import type { Vec2 } from '#lib/math/matrix.js';
@@ -12,6 +13,7 @@
 	import { decode, type RawMeta } from '#lib/raw/decode.js';
 	import HistogramView from '#lib/ui/Histogram.svelte';
 	import Panel from '#lib/ui/Panel.svelte';
+	import RowsPanel from '#lib/ui/Rows.svelte';
 	import Viewer from '#lib/ui/Viewer.svelte';
 	import type { Histogram } from '#lib/view/histogram.js';
 
@@ -35,9 +37,30 @@
 	// Each screen shows the pipeline up to its own stage.
 	const shown = $derived(
 		session.file && session.screen === 'restoration'
-			? withStageReset(session.edit, session.file.initial, 'adjustments')
+			? withoutAdjustments(session.edit, session.file.initial)
 			: session.edit
 	);
+
+	// What the Adjustments panel is showing; none of it is part of the edit.
+	let selected = $state(0);
+	let marking = $state(false);
+	let drawing = $state(false);
+	const adjusting = $derived(session.screen === 'adjustments');
+	const selectedRow = $derived(session.edit.rows.find((row) => row.id === selected) ?? null);
+
+	function draw(from: Vec2, to: Vec2) {
+		const { width, height } = imageSize(session.file!.raw.meta);
+		const row = selectedRow!;
+		const place = drawn(
+			row.where.place,
+			[from[0] / width, from[1] / height],
+			[to[0] / width, to[1] / height],
+			width / height
+		);
+		session.set(`${row.name}: draw`, place, {
+			rows: withWhere(session.edit.rows, row.id, { place })
+		});
+	}
 	const next = $derived(screens[screens.findIndex(([screen]) => screen === session.screen) + 1]);
 
 	const message = (error: unknown) => (error instanceof Error ? error.message : String(error));
@@ -57,6 +80,7 @@
 			renderer?.destroy();
 			renderer = createRenderer(gpu!, raw);
 			session.open(file.name, raw);
+			selected = 0;
 		} catch (error) {
 			failure = message(error);
 		}
@@ -65,6 +89,7 @@
 
 	function go(screen: Screen) {
 		armed = null;
+		drawing = false;
 		session.go(screen);
 	}
 
@@ -143,6 +168,8 @@
 				image={imageSize(session.file.raw.meta)}
 				onhistogram={(counts) => (histogram = counts)}
 				onpick={armed && ((at) => pick(armed!, at))}
+				ondraw={adjusting && drawing && selectedRow ? draw : null}
+				marked={adjusting && (marking || drawing) ? selectedRow : null}
 			/>
 			<aside>
 				<div class="scope"><HistogramView {histogram} /></div>
@@ -166,6 +193,20 @@
 							<button onclick={saveLog}>Save session log</button>
 						</div>
 					</section>
+				{:else if session.screen === 'adjustments'}
+					<RowsPanel
+						rows={session.edit.rows}
+						{selected}
+						onselect={(id) => {
+							selected = id;
+							drawing = false;
+						}}
+						onchange={(action, value, rows) => session.set(action, value, { rows })}
+						{marking}
+						onmark={(on) => (marking = on)}
+						{drawing}
+						ondrawing={(on) => (drawing = on)}
+					/>
 				{:else}
 					<Panel
 						stage={session.screen}

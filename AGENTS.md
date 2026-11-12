@@ -32,10 +32,10 @@ src/lib/
   pipeline/
     restoration/   linearise, demosaic (RCD), calibrate
     reference.ts   the frozen scene and its stops fields
-    adjustments/   module kinds, mask, evaluator, tone equalizer, colour
+    adjustments/   rows (where and what), weights, the evaluator
     display/       fixed display transform (AgX)
     render.ts      the whole pipeline as one function of file and edit
-  edit/        control table, edit state, panel items, logged session
+  edit/        control table, rows, edit state, panel items, logged session
   view/        display resampling and histogram
   export/      TIFF and ICC writers
   ui/          Svelte components
@@ -68,31 +68,36 @@ feature easier; raise the conflict instead.
   an optimisation keyed on its full inputs.
 - **Stage contracts are types.** An `Image<E>` carries what its numbers mean.
   A stage accepts and returns specific encodings.
-- **Zones and masks read only the reference.** Tone terms and masks receive
-  the reference (scene, stops, smoothed stops) and their parameters, never the
-  image being edited; the evaluator enforces this by what it binds. A colour
-  operation also receives the current pixel, and its zones still come from the
-  reference. A spatial module receives the graded image, by its signature and
-  not by any enforcement: local contrast acts on what the picture shows, so it
-  does see the other adjustments.
-- **Tone terms are exposure offsets in stops that add**, so their order does
-  not matter. Tone works in log2 of scene-linear luminance, not in a
-  perceptual space.
+- **An adjustment is a row: where, and what.** Where is always the same
+  shape, a place limited to a range of tones (and, later, of colours), any
+  part of which can be "everything". What is the same few settings on every
+  row. There is one way to write a given area, and no tool that works on some
+  rows and not others. The first row is the whole picture and stays.
+- **Where reads only the reference** (the restored scene, its tones in stops
+  and its smoothed tones) and the position. Nothing in Adjustments can move
+  where another row applies. The evaluator binds nothing else.
+- **Rows add.** Each row contributes its settings weighted by where it
+  applies; the sums are applied once. So rows have no order, for tone or for
+  colour, and overlapping rows stack. Tone settings are in stops of
+  scene-linear luminance, not in a perceptual space.
+- **Contrast on a row turns about that area's average tone**, so it never
+  makes the area lighter or darker overall.
 - **The display transform has no parameters.** Preview and export use it.
 - **Exposure and white balance belong to restoration.** Exposure places
   middle grey. Chromatic adaptation is CAT16.
-- **Every control is a row of the table in `edit/controls.ts`.** The edit
-  state type, the panels and the log derive from it. A control that is
-  another way to read values the edit already holds is a panel item in
-  `edit/items.ts` and adds no state.
+- **Every Restoration control is an entry of the table in
+  `edit/controls.ts`.** That part of the edit state's type, its panel and its
+  log entries derive from it. A control that is another way to read values the
+  edit already holds is a panel item in `edit/items.ts` and adds no state.
+  Adjustments are rows (`pipeline/adjustments/row.ts`, `edit/rows.ts`).
 - **Advanced does not mean withheld.** Anything conceptually sound may be
   exposed. Controls whose default suits most pictures are marked `advanced`
   and sit folded under their section.
 - **Every user action is logged** through `Session`. Do not change state
   anywhere else.
-- **Modules are identity at their defaults**, and a missing mask is the
-  constant 1. Prefer a representation that includes the degenerate case over
-  a boolean that branches around it.
+- **A row left at its defaults changes nothing**, and "everywhere" and "every
+  tone" are ordinary values of a place and a range. Prefer a representation
+  that includes the degenerate case over a boolean that branches around it.
 
 ## Code
 

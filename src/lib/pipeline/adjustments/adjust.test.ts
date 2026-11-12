@@ -1,14 +1,21 @@
 import { beforeAll, expect, test } from 'vitest';
 import { MIDDLE_GREY } from '../../colour/spaces';
 import { acquireGpu, type Gpu } from '../../gpu/gpu';
-import { download, upload, type Image } from '../../gpu/image';
+import { download, upload, type Image, type Size } from '../../gpu/image';
 import { measure, type Reference } from '../reference';
 import { adjust } from './adjust';
-import { balance, saturation } from './colour';
-import { localContrast } from './localContrast';
-import { everywhere } from './mask';
-import { atIdentity, instance, type Instance } from './module';
-import { toneCurve, toneEqualizer } from './toneEqualizer';
+import {
+	EVERYWHERE,
+	HIGHLIGHTS,
+	MIDTONES,
+	SHADOWS,
+	UNCHANGED,
+	type Row,
+	type Rows,
+	type Tones,
+	type What,
+	type Where
+} from './row';
 
 const size = { width: 32, height: 24 };
 let gpu: Gpu;
@@ -29,15 +36,29 @@ function scenePixels(): Float16Array {
 	return pixels;
 }
 
+const sceneOf = (pixels: Float16Array, of: Size) =>
+	measure(gpu, upload(gpu, of, 'RGBA16F', pixels));
+
 beforeAll(async () => {
 	gpu = await acquireGpu('accept');
-	reference = measure(gpu, upload(gpu, size, 'RGBA16F', scenePixels()));
+	reference = sceneOf(scenePixels(), size);
 });
 
-const read = async (image: Image<'scene'>) => new Float16Array(await download(gpu, image));
-const graded = (instances: readonly Instance[]) => read(adjust(gpu, reference, instances));
+let ids = 0;
+const row = (where: Where, what: Partial<What>): Row => ({
+	id: ids++,
+	name: '',
+	where,
+	what: { ...UNCHANGED, ...what }
+});
+const whole = (what: Partial<What>) => row(EVERYWHERE, what);
+const toned = (tones: Tones, what: Partial<What>) => row({ ...EVERYWHERE, tones }, what);
 
-function expectClose(actual: Float16Array, expected: Float16Array, relative: number) {
+const read = async (image: Image<'scene'>) => new Float16Array(await download(gpu, image));
+const graded = (rows: Rows, on = reference) => read(adjust(gpu, on, rows));
+const stopsField = async (field: Image<'stops'>) => new Float32Array(await download(gpu, field));
+
+function expectClose(actual: Float16Array, expected: ArrayLike<number>, relative: number) {
 	const worst = actual.reduce(
 		(max, value, i) =>
 			Math.max(max, Math.abs(value - expected[i]) / (Math.abs(expected[i]) + 1e-4)),
@@ -46,61 +67,42 @@ function expectClose(actual: Float16Array, expected: Float16Array, relative: num
 	expect(worst).toBeLessThan(relative);
 }
 
-test('every module changes nothing at its identity parameters', async () => {
-	const scene = await read(reference.scene);
-	const identities = [
-		atIdentity(toneEqualizer, everywhere),
-		atIdentity(saturation, everywhere),
-		atIdentity(balance, everywhere),
-		atIdentity(localContrast, everywhere)
-	];
-	for (const identity of identities) {
-		// Half-float storage plus a round trip through the colour space.
-		expectClose(await graded([identity]), scene, 2e-3);
-	}
+// Half-float storage plus a round trip through the colour space.
+const ROUNDING = 2e-3;
+
+test('a row left unchanged changes nothing', async () => {
+	expectClose(await graded([whole({})]), await read(reference.scene), ROUNDING);
 });
 
-test('tone terms give the same result in any order', async () => {
-	const a = instance(
-		toneEqualizer,
-		{ nodes: toneCurve({ brightness: 0, shadows: 1.5, highlights: 0, contrast: 1 }) },
-		everywhere
-	);
-	const b = instance(
-		toneEqualizer,
-		{ nodes: toneCurve({ brightness: 0, shadows: 0, highlights: -1, contrast: 1.4 }) },
-		everywhere
-	);
-	expect(await graded([a, b])).toEqual(await graded([b, a]));
+test('rows give the same result in any order, for tone and for colour', async () => {
+	const a = toned(SHADOWS, { lightness: 1.2, colour: [0.03, -0.02] });
+	const b = whole({ contrast: 1.4, saturation: 1.3, detail: 0.5 });
+	const c = toned(HIGHLIGHTS, { lightness: -0.8, colour: [-0.02, 0.04], saturation: 0.7 });
+	expect(await graded([a, b, c])).toEqual(await graded([c, a, b]));
 });
 
-test('contrast is a slope in stops about middle grey, applied to the smoothed image', async () => {
-	const contrast = 1.5;
-	const result = await graded([
-		instance(
-			toneEqualizer,
-			{ nodes: toneCurve({ brightness: 0, shadows: 0, highlights: 0, contrast }) },
-			everywhere
-		)
-	]);
+test('lightness on the whole picture is the same gain everywhere', async () => {
 	const scene = await read(reference.scene);
-	const smoothed = new Float32Array(await download(gpu, reference.smoothedStops));
-	const expected = scene.map((value, i) =>
-		i % 4 === 3 ? 1 : value * 2 ** ((contrast - 1) * smoothed[i >> 2])
+	expectClose(
+		await graded([whole({ lightness: 1 })]),
+		scene.map((value, i) => (i % 4 === 3 ? 1 : value * 2)),
+		ROUNDING
 	);
-	expectClose(result, expected, 2e-3);
+});
+
+test('the three tone ranges together are the whole picture', async () => {
+	const what = { lightness: 0.7, colour: [0.02, 0.01] as const, saturation: 1.2 };
+	expectClose(
+		await graded([toned(SHADOWS, what), toned(MIDTONES, what), toned(HIGHLIGHTS, what)]),
+		await graded([whole(what)]),
+		ROUNDING
+	);
 });
 
 test('shadows leave middle grey and everything above it alone', async () => {
-	const result = await graded([
-		instance(
-			toneEqualizer,
-			{ nodes: toneCurve({ brightness: 0, shadows: 2, highlights: 0, contrast: 1 }) },
-			everywhere
-		)
-	]);
+	const result = await graded([toned(SHADOWS, { lightness: 2 })]);
 	const scene = await read(reference.scene);
-	const smoothed = new Float32Array(await download(gpu, reference.smoothedStops));
+	const smoothed = await stopsField(reference.smoothedStops);
 	let lifted = 0;
 	for (let i = 0; i < smoothed.length; i++) {
 		const gain = result[i * 4 + 1] / scene[i * 4 + 1];
@@ -110,31 +112,59 @@ test('shadows leave middle grey and everything above it alone', async () => {
 	expect(lifted).toBeGreaterThan(0);
 });
 
-test('saturation zero gives neutral pixels of unchanged lightness', async () => {
-	const result = await graded([instance(saturation, { amount: 0 }, everywhere)]);
+test('contrast spreads tones about the area’s average and leaves that average alone', async () => {
+	const contrast = 1.5;
+	const result = await graded([whole({ contrast })]);
+	const scene = await read(reference.scene);
+	const smoothed = await stopsField(reference.smoothedStops);
+	const average = smoothed.reduce((sum, v) => sum + v, 0) / smoothed.length;
+	const added = Array.from(smoothed, (_, i) => Math.log2(result[i * 4 + 1] / scene[i * 4 + 1]));
+	added.forEach((stops, i) =>
+		expect(stops).toBeCloseTo((contrast - 1) * (smoothed[i] - average), 1)
+	);
+	expect(added.reduce((sum, v) => sum + v, 0) / added.length).toBeCloseTo(0, 1);
+});
+
+test('saturation zero gives neutral pixels', async () => {
+	const result = await graded([whole({ saturation: 0 })]);
 	for (let i = 0; i < result.length; i += 4) {
 		expect(result[i] / result[i + 1]).toBeCloseTo(1, 2);
 		expect(result[i + 2] / result[i + 1]).toBeCloseTo(1, 2);
 	}
 });
 
-test('equal balance shifts in every zone are a global shift', async () => {
-	const shift = [0.03, -0.02] as const;
-	const zero = [0, 0] as const;
-	const zones = instance(
-		balance,
-		{ global: zero, shadows: shift, midtones: shift, highlights: shift },
-		everywhere
-	);
-	const global = instance(
-		balance,
-		{ global: shift, shadows: zero, midtones: zero, highlights: zero },
-		everywhere
-	);
-	expectClose(await graded([zones]), await graded([global]), 2e-3);
+test('a gradient applies fully at its start and not at all past its end', async () => {
+	const where: Where = {
+		...EVERYWHERE,
+		place: { kind: 'gradient', from: [0.25, 0.5], to: [0.75, 0.5] }
+	};
+	const result = await graded([row(where, { lightness: 1 })]);
+	const scene = await read(reference.scene);
+	const gain = (x: number, y: number) => {
+		const i = (y * size.width + x) * 4 + 1;
+		return result[i] / scene[i];
+	};
+	expect(gain(2, 5)).toBeCloseTo(2, 2);
+	expect(gain(29, 18)).toBeCloseTo(1, 2);
+	expect(gain(16, 12)).toBeGreaterThan(1.2);
+	expect(gain(16, 12)).toBeLessThan(1.8);
 });
 
-test('local contrast scales fine variation and leaves the level of flat areas alone', async () => {
+test('outside an ellipse is the rest of the picture', async () => {
+	const place = {
+		kind: 'ellipse',
+		centre: [0.5, 0.5],
+		radii: [0.2, 0.2],
+		angle: 0,
+		feather: 0.5
+	} as const;
+	const what = { lightness: 1 };
+	const inside = row({ ...EVERYWHERE, place }, what);
+	const outside = row({ ...EVERYWHERE, place, outside: true }, what);
+	expectClose(await graded([inside, outside]), await graded([whole(what)]), ROUNDING);
+});
+
+test('detail scales fine variation and leaves flat areas alone', async () => {
 	// Wide enough for the smoothing window to span several pixels.
 	const wide = { width: 256, height: 16 };
 	const pixels = new Float16Array(wide.width * wide.height * 4);
@@ -144,30 +174,11 @@ test('local contrast scales fine variation and leaves the level of flat areas al
 		const level = MIDDLE_GREY * (x < wide.width / 2 ? 1 : 2 ** (Math.sin(x * 1.3) / 3));
 		pixels.set([level, level, level, 1], i * 4);
 	}
-	const textured = measure(gpu, upload(gpu, wide, 'RGBA16F', pixels));
-	const result = await read(
-		adjust(gpu, textured, [instance(localContrast, { amount: 1 }, everywhere)])
-	);
-	const row = (from: number, to: number, data: Float16Array) =>
+	const result = await graded([whole({ detail: 1 })], sceneOf(pixels, wide));
+	const tones = (from: number, to: number, data: Float16Array) =>
 		Array.from({ length: to - from }, (_, k) => Math.log2(data[(from + k) * 4] / MIDDLE_GREY));
 	const spread = (values: number[]) => Math.max(...values) - Math.min(...values);
 
-	expect(spread(row(16, 96, result))).toBeLessThan(0.01);
-	expect(spread(row(160, 240, result))).toBeGreaterThan(1.5 * spread(row(160, 240, pixels)));
-});
-
-test('brightness is the same gain everywhere', async () => {
-	const result = await graded([
-		instance(
-			toneEqualizer,
-			{ nodes: toneCurve({ brightness: 1, shadows: 0, highlights: 0, contrast: 1 }) },
-			everywhere
-		)
-	]);
-	const scene = await read(reference.scene);
-	expectClose(
-		result,
-		scene.map((value, i) => (i % 4 === 3 ? 1 : value * 2)),
-		2e-3
-	);
+	expect(spread(tones(16, 96, result))).toBeLessThan(0.02);
+	expect(spread(tones(160, 240, result))).toBeGreaterThan(1.5 * spread(tones(160, 240, pixels)));
 });
