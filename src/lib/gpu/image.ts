@@ -50,6 +50,7 @@ const GL = WebGL2RenderingContext;
 
 interface Layout {
 	readonly internal: GLenum;
+	readonly bytes: number;
 	readonly channels: 1 | 4;
 	/** `texSubImage2D` format and type. */
 	readonly format: GLenum;
@@ -67,6 +68,7 @@ interface Layout {
 const layouts: Record<Format, Layout> = {
 	R16UI: {
 		internal: GL.R16UI,
+		bytes: 2,
 		channels: 1,
 		format: GL.RED_INTEGER,
 		type: GL.UNSIGNED_SHORT,
@@ -76,6 +78,7 @@ const layouts: Record<Format, Layout> = {
 	},
 	R32F: {
 		internal: GL.R32F,
+		bytes: 4,
 		channels: 1,
 		format: GL.RED,
 		type: GL.FLOAT,
@@ -85,6 +88,7 @@ const layouts: Record<Format, Layout> = {
 	},
 	RGBA16F: {
 		internal: GL.RGBA16F,
+		bytes: 8,
 		channels: 4,
 		format: GL.RGBA,
 		type: GL.HALF_FLOAT,
@@ -94,6 +98,7 @@ const layouts: Record<Format, Layout> = {
 	},
 	RGBA32F: {
 		internal: GL.RGBA32F,
+		bytes: 16,
 		channels: 4,
 		format: GL.RGBA,
 		type: GL.FLOAT,
@@ -103,6 +108,7 @@ const layouts: Record<Format, Layout> = {
 	},
 	RGBA8: {
 		internal: GL.RGBA8,
+		bytes: 4,
 		channels: 4,
 		format: GL.RGBA,
 		type: GL.UNSIGNED_BYTE,
@@ -112,16 +118,76 @@ const layouts: Record<Format, Layout> = {
 	}
 };
 
-/** A texture of undefined content; every pass and every upload writes all of it. */
-export function createImage<E extends Encoding>(gpu: Gpu, size: Size, format: Format): Image<E> {
-	const { gl } = gpu;
+/**
+ * Released textures, for reuse. On ANGLE's OpenGL backend (Chromium on Linux) a new texture
+ * is zero-filled at about 1.5 GB/s before its first use, whatever then writes it: a 42 MP
+ * RGBA16F texture costs 220 ms to create against 4 ms to rewrite. Remove the pool when
+ * creating a texture no longer costs more than writing it.
+ */
+interface Pool {
+	/** By format and size, each list oldest first. */
+	readonly free: Map<string, WebGLTexture[]>;
+	/** Every pooled texture, oldest first. */
+	readonly order: {
+		readonly key: string;
+		readonly texture: WebGLTexture;
+		readonly bytes: number;
+	}[];
+	bytes: number;
+}
+
+// Bounds what released textures of sizes no longer in use (another file, another view) hold.
+const POOL_BYTES = 2 ** 31;
+
+const pools = new WeakMap<Gpu, Pool>();
+
+function poolOf(gpu: Gpu): Pool {
+	let pool = pools.get(gpu);
+	if (!pool) pools.set(gpu, (pool = { free: new Map(), order: [], bytes: 0 }));
+	return pool;
+}
+
+function allocate(gl: WebGL2RenderingContext, size: Size, format: Format): WebGLTexture {
 	const texture = gl.createTexture();
 	gl.bindTexture(gl.TEXTURE_2D, texture);
 	gl.texStorage2D(gl.TEXTURE_2D, 1, layouts[format].internal, size.width, size.height);
 	// Integer and 32-bit float textures are incomplete, and read as 0, under a linear filter.
 	gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
 	gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
-	const destroy = () => gl.deleteTexture(texture);
+	return texture;
+}
+
+/** A texture of undefined content; every pass and every upload writes all of it. */
+export function createImage<E extends Encoding>(gpu: Gpu, size: Size, format: Format): Image<E> {
+	const { gl } = gpu;
+	const pool = poolOf(gpu);
+	const key = `${format} ${size.width}x${size.height}`;
+	const bytes = size.width * size.height * layouts[format].bytes;
+	const reused = pool.free.get(key)?.pop();
+	if (reused) {
+		pool.order.splice(
+			pool.order.findIndex((entry) => entry.texture === reused),
+			1
+		);
+		pool.bytes -= bytes;
+	}
+	const texture = reused ?? allocate(gl, size, format);
+	let released = false;
+	const destroy = () => {
+		// A texture released twice would be handed out to two images.
+		if (released) throw new Error('A texture was destroyed twice.');
+		released = true;
+		pool.free.set(key, [...(pool.free.get(key) ?? []), texture]);
+		pool.order.push({ key, texture, bytes });
+		pool.bytes += bytes;
+		while (pool.bytes > POOL_BYTES) {
+			const oldest = pool.order.shift()!;
+			const free = pool.free.get(oldest.key)!;
+			free.splice(free.indexOf(oldest.texture), 1);
+			pool.bytes -= oldest.bytes;
+			gl.deleteTexture(oldest.texture);
+		}
+	};
 	return { width: size.width, height: size.height, format, texture, destroy } as Image<E>;
 }
 

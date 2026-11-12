@@ -109,6 +109,11 @@ in an ordinary Chromium as Linux distributions ship it, with no flags. It
 refuses a software renderer (SwiftShader, llvmpipe), which would take seconds
 per frame; `chrome://gpu` shows what WebGL runs on.
 
+Chromium on Linux runs WebGL on ANGLE's OpenGL backend, where a new texture
+costs about as much as uploading its size in zeros. `gpu/image.ts` reuses
+released textures for that reason, so the first frame after opening a file is
+slower than the ones after it.
+
 ## Interface
 
 Professional editing software is the model (DaVinci Resolve, darktable).

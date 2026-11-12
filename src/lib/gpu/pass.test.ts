@@ -233,3 +233,13 @@ test('acquisition refuses a software renderer and accepts it only when asked', a
 	);
 	expect(refused).toBe(software);
 });
+
+test('a destroyed texture is reused for the next image of its format and size, once', async () => {
+	const first = upload(gpu, asymmetric, 'R32F', new Float32Array(pixels(1)));
+	first.destroy();
+	expect(() => first.destroy()).toThrow();
+	const second = upload(gpu, asymmetric, 'R32F', new Float32Array(pixels(1, 2)));
+	expect(second.texture).toBe(first.texture);
+	expect(Array.from(new Float32Array(await download(gpu, second)))).toEqual(pixels(1, 2));
+	expect(upload(gpu, asymmetric, 'R32F', new Float32Array(12)).texture).not.toBe(second.texture);
+});
