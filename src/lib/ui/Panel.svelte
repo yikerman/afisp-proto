@@ -1,11 +1,8 @@
 <script lang="ts">
-	import {
-		controlIds,
-		controls,
-		type ControlId,
-		type EditState,
-		type Stage
-	} from '../edit/controls';
+	import type { EditState, Stage } from '../edit/controls';
+	import { items, type Item } from '../edit/items';
+	import type { Vec2 } from '../math/matrix';
+	import Choice from './Choice.svelte';
 	import Slider from './Slider.svelte';
 	import Wheel from './Wheel.svelte';
 
@@ -13,78 +10,95 @@
 		stage: Stage;
 		edit: EditState;
 		initial: EditState;
-		onchange: <K extends ControlId>(control: K, value: EditState[K]) => void;
+		onchange: (item: string, value: unknown, change: Partial<EditState>) => void;
 	}
 	let { stage, edit, initial, onchange }: Props = $props();
 
-	const ids = $derived(controlIds.filter((id) => controls[id].stage === stage));
-	const sections = $derived([...new Set(ids.map((id) => controls[id].section))]);
-	// Adjustments are grouped the way the pipeline runs them, one group at a time.
-	const tabbed = $derived(stage === 'adjustments');
-	let chosen = $state<string | null>(null);
-	const shown = $derived(tabbed ? [chosen ?? sections[0]] : sections);
+	const shown = $derived(items.filter((item) => item.spec.stage === stage));
+	const sections = $derived([...new Set(shown.map((item) => item.spec.section))]);
+	const within = (section: string, advanced: boolean) =>
+		shown.filter((item) => item.spec.section === section && item.spec.advanced === advanced);
+
+	const set = (item: Item, value: unknown) =>
+		onchange(item.id, value, item.write(value as never, edit, initial));
 </script>
 
-{#if tabbed}
-	<div class="tabs" role="tablist">
-		{#each sections as section (section)}
-			<button role="tab" aria-selected={shown[0] === section} onclick={() => (chosen = section)}>
-				{section}
-			</button>
-		{/each}
-	</div>
-{/if}
+{#snippet widget(item: Item)}
+	{@const spec = item.spec}
+	{#if spec.widget === 'slider'}
+		<Slider
+			{spec}
+			value={item.read(edit, initial) as number}
+			initial={item.read(initial, initial) as number}
+			onchange={(value) => set(item, value)}
+		/>
+	{:else if spec.widget === 'wheel'}
+		<Wheel
+			{spec}
+			value={item.read(edit, initial) as Vec2}
+			initial={item.read(initial, initial) as Vec2}
+			onchange={(value) => set(item, value)}
+		/>
+	{:else}
+		<Choice
+			{spec}
+			value={item.read(edit, initial) as string}
+			onchange={(value) => set(item, value)}
+		/>
+	{/if}
+{/snippet}
 
-{#each shown as section (section)}
-	<section>
-		{#if !tabbed}<h2>{section}</h2>{/if}
-		{#each ids.filter((id) => controls[id].section === section) as id (id)}
-			{@const spec = controls[id]}
-			{#if spec.widget === 'slider'}
-				<Slider
-					{spec}
-					value={edit[id] as number}
-					initial={initial[id] as number}
-					onchange={(value) => onchange(id, value as never)}
-				/>
-			{:else}
-				<Wheel
-					{spec}
-					value={edit[id] as EditState['balance']}
-					initial={initial[id] as EditState['balance']}
-					onchange={(value) => onchange(id, value as never)}
-				/>
+<!-- Sections follow the order the pipeline applies them in. -->
+{#each sections as section (section)}
+	<details class="section" open>
+		<summary>{section}</summary>
+		<div class="body">
+			{#each within(section, false) as item (item.id)}{@render widget(item)}{/each}
+			{#if within(section, true).length > 0}
+				<details class="advanced">
+					<summary>Advanced</summary>
+					{#each within(section, true) as item (item.id)}{@render widget(item)}{/each}
+				</details>
 			{/if}
-		{/each}
-	</section>
+		</div>
+	</details>
 {/each}
 
 <style>
-	.tabs {
+	.section {
+		border-bottom: 1px solid var(--edge);
+	}
+	summary {
 		display: flex;
-		border-bottom: 1px solid var(--edge);
+		align-items: center;
+		gap: 6px;
+		cursor: default;
+		list-style: none;
 	}
-	.tabs button {
-		flex: 1;
+	summary::before {
+		content: '';
+		border: 4px solid transparent;
+		border-left-color: var(--dim);
+		border-right-width: 0;
+	}
+	details[open] > summary::before {
+		transform: rotate(90deg);
+	}
+	.section > summary {
 		height: 26px;
-		background: none;
-		border: none;
-		border-bottom: 2px solid transparent;
-		border-radius: 0;
-		color: var(--dim);
-	}
-	.tabs button[aria-selected='true'] {
-		color: var(--bright);
-		border-bottom-color: var(--bright);
-	}
-	section {
-		padding: 8px 10px;
-		border-bottom: 1px solid var(--edge);
-	}
-	h2 {
-		margin: 0 0 4px;
-		font-size: inherit;
+		padding: 0 10px;
 		font-weight: 600;
+		background: var(--field);
+	}
+	.section > summary:hover,
+	.advanced > summary:hover {
+		color: var(--bright);
+	}
+	.body {
+		padding: 6px 10px 8px;
+	}
+	.advanced > summary {
+		height: var(--row);
 		color: var(--dim);
 	}
 </style>

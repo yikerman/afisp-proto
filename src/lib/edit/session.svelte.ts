@@ -1,5 +1,5 @@
 import type { RawFile } from '../raw/decode';
-import { defaults, type ControlId, type EditState, type Stage } from './controls';
+import { defaults, type EditState, type Stage } from './controls';
 import { initialState } from './edit';
 
 export type Screen = 'select' | Stage | 'export';
@@ -8,7 +8,7 @@ export type Screen = 'select' | Stage | 'export';
 export type LogEvent = { readonly time: number; readonly state: EditState } & (
 	| { readonly type: 'open'; readonly file: string }
 	| { readonly type: 'screen'; readonly screen: Screen }
-	| { readonly type: 'control'; readonly control: ControlId; readonly value: EditState[ControlId] }
+	| { readonly type: 'control'; readonly control: string; readonly value: unknown }
 );
 
 type Action = LogEvent extends infer E
@@ -50,8 +50,9 @@ export class Session {
 		this.#record({ type: 'screen', screen });
 	}
 
-	set<K extends ControlId>(control: K, value: EditState[K]) {
-		this.edit = { ...this.edit, [control]: value };
+	/** `control` is the panel item the user moved to `value`; `change` is what that did to the edit. */
+	set(control: string, value: unknown, change: Partial<EditState>) {
+		this.edit = { ...this.edit, ...change };
 		this.#record({ type: 'control', control, value });
 	}
 }

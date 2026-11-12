@@ -150,14 +150,12 @@
 						</div>
 					</section>
 				{:else}
-					{#key session.screen}
-						<Panel
-							stage={session.screen}
-							edit={session.edit}
-							initial={session.file.initial}
-							onchange={(control, value) => session.set(control, value)}
-						/>
-					{/key}
+					<Panel
+						stage={session.screen}
+						edit={session.edit}
+						initial={session.file.initial}
+						onchange={(item, value, change) => session.set(item, value, change)}
+					/>
 				{/if}
 			</aside>
 		{/if}

@@ -1,5 +1,5 @@
-import type { Vec2 } from '../math/matrix';
 import { TEMPERATURE_RANGE } from '../colour/illuminant';
+import type { Vec2 } from '../math/matrix';
 
 /** The pipeline stage a control belongs to, which is also the screen it appears on. */
 export type Stage = 'restoration' | 'adjustments';
@@ -8,6 +8,11 @@ interface Placement {
 	readonly stage: Stage;
 	readonly section: string;
 	readonly label: string;
+	/**
+	 * Advanced controls have a default that is right for most pictures. They
+	 * stay out of the way, folded under their section, but are never withheld.
+	 */
+	readonly advanced: boolean;
 }
 
 export interface Slider extends Placement {
@@ -28,65 +33,121 @@ export interface Wheel extends Placement {
 	readonly default: Vec2;
 }
 
-export type Control = Slider | Wheel;
+export interface Choice<V extends string = string> extends Placement {
+	readonly widget: 'choice';
+	readonly options: readonly { readonly value: V; readonly label: string }[];
+	readonly default: V;
+}
 
-const slider = (
-	stage: Stage,
-	section: string,
-	label: string,
-	unit: string,
-	[min, max]: readonly [number, number],
-	step: number,
-	initial: number,
-	scale: Slider['scale'] = 'linear'
+export type Control = Slider | Wheel | Choice;
+
+type Common = 'widget' | 'scale' | 'advanced';
+
+export const slider = (
+	spec: Omit<Slider, Common> & Partial<Pick<Slider, 'scale' | 'advanced'>>
 ): Slider => ({
 	widget: 'slider',
-	stage,
-	section,
-	label,
-	unit,
-	min,
-	max,
-	step,
-	scale,
-	default: initial
+	scale: 'linear',
+	advanced: false,
+	...spec
 });
+
+export const [restoration, adjustments] = [
+	{ stage: 'restoration' },
+	{ stage: 'adjustments' }
+] as const;
+const stops = { unit: 'EV', step: 0.01 };
+const ratio = { unit: '', step: 0.01 };
 
 /**
  * Every user control: the single table the edit state's type, the panels and
  * the session log are derived from.
  */
 export const controls = {
-	exposure: slider('restoration', 'Exposure', 'Exposure', 'EV', [-4, 4], 0.01, 0.7),
+	exposure: slider({
+		...restoration,
+		section: 'Exposure',
+		label: 'Exposure',
+		...stops,
+		min: -4,
+		max: 4,
+		default: 0.7
+	}),
+
 	// The default light is the one the camera recorded; see `initialState`.
-	temperature: slider(
-		'restoration',
-		'White balance',
-		'Temperature',
-		'K',
-		TEMPERATURE_RANGE,
-		10,
-		6500,
-		'logarithmic'
-	),
-	tint: slider('restoration', 'White balance', 'Tint', '', [-60, 60], 0.1, 0),
-	shadows: slider('adjustments', 'Tone', 'Shadows', 'EV', [-2, 2], 0.01, 0),
-	highlights: slider('adjustments', 'Tone', 'Highlights', 'EV', [-2, 2], 0.01, 0),
-	contrast: slider('adjustments', 'Tone', 'Contrast', '', [0.5, 2], 0.01, 1),
-	saturation: slider('adjustments', 'Colour', 'Saturation', '', [0, 2], 0.01, 1),
+	temperature: slider({
+		...restoration,
+		section: 'White balance',
+		label: 'Temperature',
+		unit: 'K',
+		step: 10,
+		min: TEMPERATURE_RANGE[0],
+		max: TEMPERATURE_RANGE[1],
+		scale: 'logarithmic',
+		default: 6500
+	}),
+	tint: slider({
+		...restoration,
+		section: 'White balance',
+		label: 'Tint',
+		unit: '',
+		step: 0.1,
+		min: -60,
+		max: 60,
+		default: 0
+	}),
+
+	shadows: slider({
+		...adjustments,
+		section: 'Tone',
+		label: 'Shadows',
+		...stops,
+		min: -2,
+		max: 2,
+		default: 0
+	}),
+	highlights: slider({
+		...adjustments,
+		section: 'Tone',
+		label: 'Highlights',
+		...stops,
+		min: -2,
+		max: 2,
+		default: 0
+	}),
+	contrast: slider({
+		...adjustments,
+		section: 'Tone',
+		label: 'Contrast',
+		...ratio,
+		min: 0.5,
+		max: 2,
+		default: 1
+	}),
+
+	saturation: slider({
+		...adjustments,
+		section: 'Colour',
+		label: 'Saturation',
+		...ratio,
+		min: 0,
+		max: 2,
+		default: 1
+	}),
 	balance: {
 		widget: 'wheel',
-		stage: 'adjustments',
+		...adjustments,
 		section: 'Colour',
 		label: 'Balance',
+		advanced: false,
 		radius: 0.1,
 		default: [0, 0]
-	}
+	} satisfies Wheel as Wheel
 } as const satisfies Record<string, Control>;
 
 export type ControlId = keyof typeof controls;
 
-type Value<C extends Control> = C extends Slider ? number : Vec2;
+type Value<C extends Control> = C extends Slider ? number : C extends Choice<infer V> ? V : Vec2;
 
 /** The whole edit: one immutable value. */
 export type EditState = { readonly [K in ControlId]: Value<(typeof controls)[K]> };
