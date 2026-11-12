@@ -3,7 +3,9 @@
 		added,
 		colour,
 		describe,
-		elements,
+		atoms,
+		presets,
+		started,
 		feather,
 		hows,
 		isShape,
@@ -17,7 +19,9 @@
 		withTone,
 		withWhat,
 		withWhere,
-		type ElementKind
+		type Atom,
+		type Preset,
+		type Start
 	} from '../edit/rows';
 	import {
 		UNCHANGED,
@@ -53,6 +57,24 @@
 	let open = $state(0);
 	const step = $derived(row.where[Math.min(open, row.where.length - 1)]);
 
+	interface Group {
+		readonly label: string;
+		readonly options: readonly (readonly [string, string])[];
+	}
+	// The menus keep the two apart: what a selection is made of, and ready-made selections.
+	const starts: readonly Group[] = [
+		{
+			label: 'Elements',
+			options: Object.entries(atoms).map(([kind, atom]) => [`atom:${kind}`, atom.name] as const)
+		},
+		{
+			label: 'Presets',
+			options: Object.entries(presets).map(
+				([name, preset]) => [`preset:${name}`, preset.name] as const
+			)
+		}
+	];
+
 	const sliders = Object.entries(settings) as [
 		keyof typeof settings,
 		(typeof settings)['lightness']
@@ -76,13 +98,23 @@
 		onselect(id);
 	}
 
-	function add(kind: ElementKind | 'everywhere') {
-		const next = added(rows, kind);
+	/** A menu choice as a start: `nothing`, `atom:<kind>` or `preset:<name>`. */
+	const startOf = (choice: string): Start =>
+		choice.startsWith('atom:')
+			? { from: 'atom', atom: choice.slice(5) as Atom }
+			: choice.startsWith('preset:')
+				? { from: 'preset', preset: choice.slice(7) as Preset }
+				: { from: 'nothing' };
+
+	const drawable = (steps: Where) => steps.findIndex((each) => isShape(each.element));
+
+	function add(choice: string) {
+		const next = added(rows, startOf(choice));
 		const fresh = next.at(-1)!;
 		onchange(`add modification`, fresh.name, next);
 		select(fresh.id);
 		// A shape is useless until it has been put somewhere.
-		if (fresh.where[0] && isShape(fresh.where[0].element)) ondrawing(0);
+		ondrawing(drawable(fresh.where) < 0 ? null : drawable(fresh.where));
 	}
 
 	function remove(id: number) {
@@ -90,17 +122,15 @@
 		select(rows[0].id);
 	}
 
-	/** `choice` is an element kind, or `area:<row id>`. */
+	/** `choice` is as for `startOf`, or `area:<row id>`. */
 	function addElement(choice: string) {
-		const fresh: Element = choice.startsWith('area:')
-			? { kind: 'area', row: Number(choice.slice(5)) }
-			: elements[choice as ElementKind].element;
-		open = row.where.length;
-		where('add element', named(fresh, rows), (current) => [
-			...current,
-			{ how: 'intersect', element: fresh }
-		]);
-		ondrawing(isShape(fresh) ? row.where.length : null);
+		const steps: Where = choice.startsWith('area:')
+			? [{ how: 'intersect', element: { kind: 'area', row: Number(choice.slice(5)) } }]
+			: started(startOf(choice)).where;
+		const first = row.where.length;
+		open = first;
+		where('add element', describe(steps, rows), (current) => [...current, ...steps]);
+		ondrawing(drawable(steps) < 0 ? null : first + drawable(steps));
 	}
 
 	function removeElement(index: number) {
@@ -112,11 +142,7 @@
 	}
 </script>
 
-{#snippet adder(
-	label: string,
-	options: readonly (readonly [string, string])[],
-	pick: (value: string) => void
-)}
+{#snippet adder(label: string, groups: readonly Group[], pick: (value: string) => void)}
 	<select
 		class="adder"
 		aria-label={label}
@@ -127,8 +153,12 @@
 		}}
 	>
 		<option value="" disabled>{label}</option>
-		{#each options as [value, name] (value)}
-			<option {value}>{name}</option>
+		{#each groups as group (group.label)}
+			<optgroup label={group.label}>
+				{#each group.options as [value, name] (value)}
+					<option {value}>{name}</option>
+				{/each}
+			</optgroup>
 		{/each}
 	</select>
 {/snippet}
@@ -138,11 +168,8 @@
 		<h2>Modifications</h2>
 		{@render adder(
 			'Add',
-			[
-				['everywhere', 'Whole picture'],
-				...Object.entries(elements).map(([kind, e]) => [kind, e.name] as const)
-			],
-			(kind) => add(kind as ElementKind | 'everywhere')
+			[{ label: 'Whole picture', options: [['nothing', 'Whole picture']] }, ...starts],
+			add
 		)}
 	</header>
 	<ul>
@@ -219,8 +246,11 @@
 			{@render adder(
 				'Add element',
 				[
-					...Object.entries(elements).map(([kind, e]) => [kind, e.name] as const),
-					...usable(rows, row.id).map((r) => [`area:${r.id}`, `Area of ${r.name}`] as const)
+					...starts,
+					{
+						label: 'Other modifications',
+						options: usable(rows, row.id).map((r) => [`area:${r.id}`, `Area of ${r.name}`] as const)
+					}
 				],
 				addElement
 			)}

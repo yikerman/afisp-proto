@@ -113,12 +113,12 @@ export const hows: Record<How, string> = {
 	subtract: 'Subtract'
 };
 
-/** Elements that can be put into a row's where. A shape starts where the user then draws it. */
-export const elements = {
-	shadows: { name: 'Shadows', element: { kind: 'tones', ...SHADOWS } },
-	midtones: { name: 'Midtones', element: { kind: 'tones', ...MIDTONES } },
-	highlights: { name: 'Highlights', element: { kind: 'tones', ...HIGHLIGHTS } },
-	tones: { name: 'Tones', element: { kind: 'tones', ...ALL_TONES } },
+/**
+ * The kinds of element a selection is made of, each at a starting value: a
+ * tone range that takes in every tone, and shapes the user then draws.
+ */
+export const atoms = {
+	tones: { name: 'Tone range', element: { kind: 'tones', ...ALL_TONES } },
 	gradient: { name: 'Gradient', element: { kind: 'gradient', from: [0.5, 0.2], to: [0.5, 0.6] } },
 	ellipse: {
 		name: 'Ellipse',
@@ -126,23 +126,44 @@ export const elements = {
 	}
 } as const satisfies Record<string, { name: string; element: Element }>;
 
-export type ElementKind = keyof typeof elements;
+export type Atom = keyof typeof atoms;
+
+const only = (element: Element): Where => [{ how: 'intersect', element }];
+
+/** Named selections, built from atoms and nothing else. */
+export const presets = {
+	shadows: { name: 'Shadows', where: only({ kind: 'tones', ...SHADOWS }) },
+	midtones: { name: 'Midtones', where: only({ kind: 'tones', ...MIDTONES }) },
+	highlights: { name: 'Highlights', where: only({ kind: 'tones', ...HIGHLIGHTS }) }
+} as const satisfies Record<string, { name: string; where: Where }>;
+
+export type Preset = keyof typeof presets;
+
+/** What a new selection can start from. */
+export type Start =
+	| { readonly from: 'nothing' }
+	| { readonly from: 'atom'; readonly atom: Atom }
+	| { readonly from: 'preset'; readonly preset: Preset };
+
+/** The steps a start contributes, and what to call a row made from it. */
+export function started(start: Start): { readonly name: string; readonly where: Where } {
+	switch (start.from) {
+		case 'nothing':
+			return { name: 'Modification', where: [] };
+		case 'atom':
+			return { name: atoms[start.atom].name, where: only(atoms[start.atom].element) };
+		case 'preset':
+			return presets[start.preset];
+	}
+}
 
 const nextId = (rows: Rows) => Math.max(...rows.map((row) => row.id)) + 1;
 
-/** A new row over the whole picture, or starting from one element. */
-export function added(rows: Rows, kind: ElementKind | 'everywhere'): Rows {
-	const fresh: Row =
-		kind === 'everywhere'
-			? { id: nextId(rows), name: 'Modification', where: [], what: UNCHANGED }
-			: {
-					id: nextId(rows),
-					name: elements[kind].name,
-					where: [{ how: 'intersect', element: elements[kind].element }],
-					what: UNCHANGED
-				};
-	return [...rows, fresh];
-}
+/** A new row, selecting what `start` selects. */
+export const added = (rows: Rows, start: Start): Rows => [
+	...rows,
+	{ id: nextId(rows), ...started(start), what: UNCHANGED }
+];
 
 const refersTo = (id: number) => (step: Step) =>
 	step.element.kind === 'area' && step.element.row === id;
