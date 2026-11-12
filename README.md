@@ -21,6 +21,14 @@ their pipelines are structured, not because of their controls. The controls
 here are therefore borrowed from darktable and from film colour grading
 practice; the structure is what is new.
 
+The contribution is a front end, not an engine. Node-graph processors such as
+vkdt are designed to be flexible enough to express any image pipeline, this
+one included. What is offered here is a conceptually sound set of constraints
+on such a pipeline, and an interface built on them: which wiring is allowed,
+which stage a control belongs to, and what the user is shown. The image
+processing underneath is deliberately ordinary and could be replaced by a
+more capable engine without changing the idea.
+
 ## Method
 
 The pipeline is one pure function of the RAW file and a single immutable edit
