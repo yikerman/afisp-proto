@@ -158,6 +158,15 @@ export const controls = {
 		default: 0
 	}),
 
+	brightness: slider({
+		...adjustments,
+		section: 'Tone',
+		label: 'Brightness',
+		...stops,
+		min: -3,
+		max: 3,
+		default: 0
+	}),
 	shadows: slider({
 		...adjustments,
 		section: 'Tone',

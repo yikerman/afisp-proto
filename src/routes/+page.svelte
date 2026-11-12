@@ -204,14 +204,20 @@
 	}
 	main {
 		display: grid;
-		grid-template-columns: minmax(0, 1fr) 320px;
+		grid-template-columns: minmax(0, 1fr) 332px;
 		grid-template-rows: minmax(0, 1fr);
 		min-height: 0;
 	}
+	/* The panel scrolls when its sections do not fit. The scrollbar always has its own
+	   strip, so it never covers the controls and it shows that there is more below. */
 	aside {
 		background: var(--panel);
 		border-left: 1px solid var(--edge);
-		overflow-y: auto;
+		overflow-y: scroll;
+		scrollbar-gutter: stable;
+		scrollbar-width: thin;
+		scrollbar-color: var(--fill) var(--edge);
+		padding-bottom: 24px;
 	}
 	.scope {
 		padding: 10px;

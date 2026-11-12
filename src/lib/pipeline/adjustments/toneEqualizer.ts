@@ -48,6 +48,8 @@ fn tone_equalizer(reference: Reference, params: tone_equalizer_params) -> f32 {
 };
 
 export interface ToneControls {
+	/** Stops added everywhere: a lighter or darker picture with every zone where it was. */
+	readonly brightness: number;
 	/** Stops added to everything four or more stops below middle grey. */
 	readonly shadows: number;
 	/** Stops added to everything four or more stops above middle grey. */
@@ -62,7 +64,13 @@ const SHADOWS = [1, 1, 1, 0.5, 0, 0, 0, 0, 0] as const;
 const HIGHLIGHTS = [0, 0, 0, 0, 0, 0.5, 1, 1, 1] as const;
 
 /** The curve the three tone controls stand for. */
-export const toneCurve = ({ shadows, highlights, contrast }: ToneControls): readonly number[] =>
+export const toneCurve = ({
+	brightness,
+	shadows,
+	highlights,
+	contrast
+}: ToneControls): readonly number[] =>
 	NODE_STOPS.map(
-		(stops, i) => shadows * SHADOWS[i] + highlights * HIGHLIGHTS[i] + (contrast - 1) * stops
+		(stops, i) =>
+			brightness + shadows * SHADOWS[i] + highlights * HIGHLIGHTS[i] + (contrast - 1) * stops
 	);

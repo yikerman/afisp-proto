@@ -63,12 +63,12 @@ test('every module changes nothing at its identity parameters', async () => {
 test('tone terms give the same result in any order', async () => {
 	const a = instance(
 		toneEqualizer,
-		{ nodes: toneCurve({ shadows: 1.5, highlights: 0, contrast: 1 }) },
+		{ nodes: toneCurve({ brightness: 0, shadows: 1.5, highlights: 0, contrast: 1 }) },
 		everywhere
 	);
 	const b = instance(
 		toneEqualizer,
-		{ nodes: toneCurve({ shadows: 0, highlights: -1, contrast: 1.4 }) },
+		{ nodes: toneCurve({ brightness: 0, shadows: 0, highlights: -1, contrast: 1.4 }) },
 		everywhere
 	);
 	expect(await graded([a, b])).toEqual(await graded([b, a]));
@@ -79,7 +79,7 @@ test('contrast is a slope in stops about middle grey, applied to the smoothed im
 	const result = await graded([
 		instance(
 			toneEqualizer,
-			{ nodes: toneCurve({ shadows: 0, highlights: 0, contrast }) },
+			{ nodes: toneCurve({ brightness: 0, shadows: 0, highlights: 0, contrast }) },
 			everywhere
 		)
 	]);
@@ -95,7 +95,7 @@ test('shadows leave middle grey and everything above it alone', async () => {
 	const result = await graded([
 		instance(
 			toneEqualizer,
-			{ nodes: toneCurve({ shadows: 2, highlights: 0, contrast: 1 }) },
+			{ nodes: toneCurve({ brightness: 0, shadows: 2, highlights: 0, contrast: 1 }) },
 			everywhere
 		)
 	]);
@@ -154,4 +154,20 @@ test('local contrast scales fine variation and leaves the level of flat areas al
 
 	expect(spread(row(16, 96, result))).toBeLessThan(0.01);
 	expect(spread(row(160, 240, result))).toBeGreaterThan(1.5 * spread(row(160, 240, pixels)));
+});
+
+test('brightness is the same gain everywhere', async () => {
+	const result = await graded([
+		instance(
+			toneEqualizer,
+			{ nodes: toneCurve({ brightness: 1, shadows: 0, highlights: 0, contrast: 1 }) },
+			everywhere
+		)
+	]);
+	const scene = await read(reference.scene);
+	expectClose(
+		result,
+		scene.map((value, i) => (i % 4 === 3 ? 1 : value * 2)),
+		2e-3
+	);
 });

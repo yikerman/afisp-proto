@@ -47,6 +47,16 @@ src/routes/    the single page
 These are what the prototype exists to test. Do not weaken them to make a
 feature easier; raise the conflict instead.
 
+- **A control's stage is decided by what its value is a judgement about.**
+  Restoration holds judgements about physical fact: the light, what an
+  observer at the scene saw as middle grey and as white, the lens, the sensor.
+  Intention can enter (a night scene was dark and stays dark), but the value
+  is defended by pointing at the scene, and an instrument there could in
+  principle settle it. Adjustments hold judgements about the look, which are
+  purely aesthetic. The display transform holds facts about the medium. A
+  control that is partly both is two controls. Because a fact about the scene
+  does not change with the look, nothing done in Adjustments should ever be a
+  reason to return to Restoration.
 - **One pure function.** `display = transform(adjust(restore(raw)))`, of the
   file and one immutable edit value. Remembering a result is allowed only as
   an optimisation keyed on its full inputs.
