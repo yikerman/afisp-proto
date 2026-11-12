@@ -22,7 +22,9 @@
 		spec.scale === 'logarithmic'
 			? spec.min * (spec.max / spec.min) ** t
 			: spec.min + t * (spec.max - spec.min);
-	const admit = (v: number) => clamp(Math.round(v / spec.step) * spec.step, spec.min, spec.max);
+	// Rounded to the step, then to its decimals so the stored value is the one displayed.
+	const admit = (v: number) =>
+		Number(clamp(Math.round(v / spec.step) * spec.step, spec.min, spec.max).toFixed(decimals));
 
 	let track: HTMLDivElement;
 	// Unrounded position while dragging, so fine movement accumulates.

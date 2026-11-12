@@ -63,7 +63,8 @@
 		link.href = URL.createObjectURL(blob);
 		link.download = name;
 		link.click();
-		URL.revokeObjectURL(link.href);
+		// The browser reads the blob after this returns; revoking at once can cancel a large download.
+		setTimeout(() => URL.revokeObjectURL(link.href), 60_000);
 	}
 
 	const baseName = () => session.file!.name.replace(/\.[^.]+$/, '');
