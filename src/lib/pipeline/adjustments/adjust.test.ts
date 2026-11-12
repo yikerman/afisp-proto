@@ -5,6 +5,7 @@ import { download, upload, type Image } from '../../gpu/image';
 import { measure, type Reference } from '../reference';
 import { adjust } from './adjust';
 import { balance, saturation } from './colour';
+import { localContrast } from './localContrast';
 import { everywhere } from './mask';
 import { atIdentity, instance, type Instance } from './module';
 import { toneCurve, toneEqualizer } from './toneEqualizer';
@@ -50,7 +51,8 @@ test('every module changes nothing at its identity parameters', async () => {
 	const identities = [
 		atIdentity(toneEqualizer, everywhere),
 		atIdentity(saturation, everywhere),
-		atIdentity(balance, everywhere)
+		atIdentity(balance, everywhere),
+		atIdentity(localContrast, everywhere)
 	];
 	for (const identity of identities) {
 		// Half-float storage plus a round trip through the colour space.
@@ -114,4 +116,42 @@ test('saturation zero gives neutral pixels of unchanged lightness', async () => 
 		expect(result[i] / result[i + 1]).toBeCloseTo(1, 2);
 		expect(result[i + 2] / result[i + 1]).toBeCloseTo(1, 2);
 	}
+});
+
+test('equal balance shifts in every zone are a global shift', async () => {
+	const shift = [0.03, -0.02] as const;
+	const zero = [0, 0] as const;
+	const zones = instance(
+		balance,
+		{ global: zero, shadows: shift, midtones: shift, highlights: shift },
+		everywhere
+	);
+	const global = instance(
+		balance,
+		{ global: shift, shadows: zero, midtones: zero, highlights: zero },
+		everywhere
+	);
+	expectClose(await graded([zones]), await graded([global]), 2e-3);
+});
+
+test('local contrast scales fine variation and leaves the level of flat areas alone', async () => {
+	// Wide enough for the smoothing window to span several pixels.
+	const wide = { width: 256, height: 16 };
+	const pixels = new Float16Array(wide.width * wide.height * 4);
+	for (let i = 0; i < wide.width * wide.height; i++) {
+		const x = i % wide.width;
+		// Left half flat, right half a fine ripple of a third of a stop.
+		const level = MIDDLE_GREY * (x < wide.width / 2 ? 1 : 2 ** (Math.sin(x * 1.3) / 3));
+		pixels.set([level, level, level, 1], i * 4);
+	}
+	const textured = measure(gpu, upload(gpu, 'textured', wide, 'rgba16float', pixels));
+	const result = await read(
+		adjust(gpu, textured, [instance(localContrast, { amount: 1 }, everywhere)])
+	);
+	const row = (from: number, to: number, data: Float16Array) =>
+		Array.from({ length: to - from }, (_, k) => Math.log2(data[(from + k) * 4] / MIDDLE_GREY));
+	const spread = (values: number[]) => Math.max(...values) - Math.min(...values);
+
+	expect(spread(row(16, 96, result))).toBeLessThan(0.01);
+	expect(spread(row(160, 240, result))).toBeGreaterThan(1.5 * spread(row(160, 240, pixels)));
 });

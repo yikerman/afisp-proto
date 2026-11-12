@@ -1,5 +1,5 @@
 <script lang="ts">
-	import type { Slider } from '../edit/controls';
+	import { admit, type Slider } from '../edit/controls';
 
 	interface Props {
 		spec: Slider;
@@ -22,9 +22,7 @@
 		spec.scale === 'logarithmic'
 			? spec.min * (spec.max / spec.min) ** t
 			: spec.min + t * (spec.max - spec.min);
-	// Rounded to the step, then to its decimals so the stored value is the one displayed.
-	const admit = (v: number) =>
-		Number(clamp(Math.round(v / spec.step) * spec.step, spec.min, spec.max).toFixed(decimals));
+	const admitted = (v: number) => admit(spec, v);
 
 	let track: HTMLDivElement;
 	// Unrounded position while dragging, so fine movement accumulates.
@@ -34,27 +32,27 @@
 		track.setPointerCapture(event.pointerId);
 		const box = track.getBoundingClientRect();
 		dragged = event.shiftKey ? toTrack(value) : clamp((event.clientX - box.left) / box.width, 0, 1);
-		onchange(admit(fromTrack(dragged)));
+		onchange(admitted(fromTrack(dragged)));
 	}
 
 	function drag(event: PointerEvent) {
 		if (!track.hasPointerCapture(event.pointerId)) return;
 		const fine = event.shiftKey ? 0.1 : 1;
 		dragged = clamp(dragged + (event.movementX / track.clientWidth) * fine, 0, 1);
-		onchange(admit(fromTrack(dragged)));
+		onchange(admitted(fromTrack(dragged)));
 	}
 
 	function key(event: KeyboardEvent) {
 		const direction = { ArrowLeft: -1, ArrowDown: -1, ArrowRight: 1, ArrowUp: 1 }[event.key];
 		if (!direction) return;
 		event.preventDefault();
-		onchange(admit(value + direction * spec.step * (event.shiftKey ? 10 : 1)));
+		onchange(admitted(value + direction * spec.step * (event.shiftKey ? 10 : 1)));
 	}
 
 	function typed(event: Event) {
 		const input = event.currentTarget as HTMLInputElement;
 		const entered = Number(input.value);
-		if (Number.isFinite(entered)) onchange(admit(entered));
+		if (Number.isFinite(entered)) onchange(admitted(entered));
 		input.value = value.toFixed(decimals);
 	}
 </script>

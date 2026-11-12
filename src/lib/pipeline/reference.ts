@@ -54,8 +54,16 @@ fn pixel(p: vec2i) -> vec4f {
 // image and interpolated (He & Sun, "Fast Guided Filter", 2015). The window is a
 // fraction of the image so the result does not depend on resolution.
 const REDUCED_LONG_SIDE = 512;
-const WINDOW_RADIUS = 0.025; // of the long side
-const EDGE_VARIANCE = 0.25; // stops squared: local contrast above this counts as an edge
+
+export interface Smoothing {
+	/** Window radius as a fraction of the image's long side. */
+	readonly radius: number;
+	/** Stops squared: variation within a window above this counts as an edge and is kept. */
+	readonly edgeVariance: number;
+}
+
+/** Wide enough that a region of one tone reads as one zone. */
+const ZONES: Smoothing = { radius: 0.025, edgeVariance: 0.25 };
 
 /** Block means of the value and its square, in r and g. */
 const reduceWgsl = /* wgsl */ `
@@ -88,7 +96,7 @@ const coefficientsWgsl = /* wgsl */ `
 fn pixel(p: vec2i) -> vec4f {
 	let moments = textureLoad(means, p, 0);
 	let variance = moments.g - moments.r * moments.r;
-	let a = variance / (variance + ${EDGE_VARIANCE});
+	let a = variance / (variance + u.edge_variance);
 	return vec4f(a, (1 - a) * moments.r, 0, 1);
 }`;
 
@@ -122,14 +130,15 @@ function box(gpu: Gpu, image: GPUTexture, radius: number): GPUTexture {
 	return both;
 }
 
-function smooth(gpu: Gpu, stops: Image<'stops'>): Image<'stops'> {
+/** `stops` with variation finer than the window removed, except across edges. */
+export function smooth(gpu: Gpu, stops: Image<'stops'>, smoothing: Smoothing): Image<'stops'> {
 	const longSide = Math.max(stops.width, stops.height);
 	const factor = Math.ceil(longSide / REDUCED_LONG_SIDE);
 	const reducedSize: Size = {
 		width: Math.ceil(stops.width / factor),
 		height: Math.ceil(stops.height / factor)
 	};
-	const radius = Math.round((WINDOW_RADIUS * longSide) / factor);
+	const radius = Math.round((smoothing.radius * longSide) / factor);
 
 	const reduced = run(gpu, {
 		label: 'reduce',
@@ -144,7 +153,7 @@ function smooth(gpu: Gpu, stops: Image<'stops'>): Image<'stops'> {
 		label: 'coefficients',
 		wgsl: coefficientsWgsl,
 		textures: { means },
-		uniforms: {},
+		uniforms: { edge_variance: f32(smoothing.edgeVariance) },
 		size: reducedSize,
 		format: 'rgba32float'
 	});
@@ -161,9 +170,9 @@ function smooth(gpu: Gpu, stops: Image<'stops'>): Image<'stops'> {
 	return smoothed;
 }
 
-/** Takes ownership of `scene`. */
-export function measure(gpu: Gpu, scene: Image<'scene'>): Reference {
-	const stops = run<'stops'>(gpu, {
+/** Luminance of a scene image in stops relative to middle grey. */
+export const stopsOf = (gpu: Gpu, scene: Image<'scene'>): Image<'stops'> =>
+	run(gpu, {
 		label: 'stops',
 		wgsl: stopsWgsl,
 		textures: { scene },
@@ -171,7 +180,11 @@ export function measure(gpu: Gpu, scene: Image<'scene'>): Reference {
 		size: scene,
 		format: 'r32float'
 	});
-	return { scene, stops, smoothedStops: smooth(gpu, stops) };
+
+/** Takes ownership of `scene`. */
+export function measure(gpu: Gpu, scene: Image<'scene'>): Reference {
+	const stops = stopsOf(gpu, scene);
+	return { scene, stops, smoothedStops: smooth(gpu, stops, ZONES) };
 }
 
 export function destroyReference(reference: Reference): void {

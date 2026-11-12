@@ -1,4 +1,5 @@
 import { balance, saturation } from '../pipeline/adjustments/colour';
+import { localContrast } from '../pipeline/adjustments/localContrast';
 import { everywhere } from '../pipeline/adjustments/mask';
 import { instance } from '../pipeline/adjustments/module';
 import { toneCurve, toneEqualizer } from '../pipeline/adjustments/toneEqualizer';
@@ -22,6 +23,16 @@ export const toEdit = (state: EditState): Edit => ({
 	adjustments: [
 		instance(toneEqualizer, { nodes: toneCurve(state) }, everywhere),
 		instance(saturation, { amount: state.saturation }, everywhere),
-		instance(balance, { shift: state.balance }, everywhere)
+		instance(
+			balance,
+			{
+				global: state.balance,
+				shadows: state.balanceShadows,
+				midtones: state.balanceMidtones,
+				highlights: state.balanceHighlights
+			},
+			everywhere
+		),
+		instance(localContrast, { amount: state.localContrast }, everywhere)
 	]
 });

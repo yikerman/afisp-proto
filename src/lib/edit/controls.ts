@@ -52,6 +52,16 @@ export const slider = (
 	...spec
 });
 
+const wheel = (label: string): Wheel => ({
+	widget: 'wheel',
+	stage: 'adjustments',
+	section: 'Colour balance',
+	label,
+	advanced: false,
+	radius: 0.1,
+	default: [0, 0]
+});
+
 export const [restoration, adjustments] = [
 	{ stage: 'restoration' },
 	{ stage: 'adjustments' }
@@ -134,15 +144,20 @@ export const controls = {
 		max: 2,
 		default: 1
 	}),
-	balance: {
-		widget: 'wheel',
+	balance: wheel('Global'),
+	balanceShadows: wheel('Shadows'),
+	balanceMidtones: wheel('Midtones'),
+	balanceHighlights: wheel('Highlights'),
+
+	localContrast: slider({
 		...adjustments,
-		section: 'Colour',
-		label: 'Balance',
-		advanced: false,
-		radius: 0.1,
-		default: [0, 0]
-	} satisfies Wheel as Wheel
+		section: 'Detail',
+		label: 'Local contrast',
+		...ratio,
+		min: -1,
+		max: 1,
+		default: 0
+	})
 } as const satisfies Record<string, Control>;
 
 export type ControlId = keyof typeof controls;
@@ -151,6 +166,13 @@ type Value<C extends Control> = C extends Slider ? number : C extends Choice<inf
 
 /** The whole edit: one immutable value. */
 export type EditState = { readonly [K in ControlId]: Value<(typeof controls)[K]> };
+
+/** The nearest value a slider can hold: within its range, on its step. */
+export function admit(spec: Slider, value: number): number {
+	const decimals = Math.max(0, -Math.floor(Math.log10(spec.step)));
+	const stepped = Math.round(value / spec.step) * spec.step;
+	return Number(Math.min(Math.max(stepped, spec.min), spec.max).toFixed(decimals));
+}
 
 export const controlIds = Object.keys(controls) as ControlId[];
 
