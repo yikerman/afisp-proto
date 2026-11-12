@@ -1,5 +1,6 @@
 import { TEMPERATURE_RANGE } from '../colour/illuminant';
 import type { Vec2 } from '../math/matrix';
+import type { LensChoice } from '../pipeline/render';
 
 /** The pipeline stage a control belongs to, which is also the screen it appears on. */
 export type Stage = 'restoration' | 'adjustments';
@@ -72,6 +73,7 @@ export const [restoration, adjustments] = [
 	{ stage: 'restoration' },
 	{ stage: 'adjustments' }
 ] as const;
+const lens = { ...restoration, section: 'Lens correction' } as const;
 const stops = { unit: 'EV', step: 0.01 };
 const ratio = { unit: '', step: 0.01 };
 
@@ -110,6 +112,49 @@ export const controls = {
 		step: 0.1,
 		min: -60,
 		max: 60,
+		default: 0
+	}),
+
+	lens: {
+		widget: 'choice',
+		...restoration,
+		section: 'Lens correction',
+		label: 'Correction',
+		advanced: false,
+		options: [
+			{ value: 'embedded', label: 'From the file' },
+			{ value: 'manual', label: 'Manual' },
+			{ value: 'none', label: 'None' }
+		],
+		default: 'embedded'
+	} satisfies Choice<LensChoice['source']> as Choice<LensChoice['source']>,
+	// Shown only for manual correction; see `items.ts`.
+	lensDistortion: slider({
+		...lens,
+		label: 'Distortion',
+		unit: '%',
+		step: 0.1,
+		min: -20,
+		max: 20,
+		default: 0
+	}),
+	lensVignetting: slider({ ...lens, label: 'Vignetting', ...stops, min: -1, max: 3, default: 0 }),
+	lensRed: slider({
+		...lens,
+		label: 'Red fringe',
+		unit: '‰',
+		step: 0.01,
+		min: -10,
+		max: 10,
+		default: 0
+	}),
+	lensBlue: slider({
+		...lens,
+		label: 'Blue fringe',
+		unit: '‰',
+		step: 0.01,
+		min: -10,
+		max: 10,
 		default: 0
 	}),
 

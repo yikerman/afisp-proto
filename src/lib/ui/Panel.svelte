@@ -18,7 +18,7 @@
 	}
 	let { stage, edit, initial, onchange, armed, onarm }: Props = $props();
 
-	const shown = $derived(items.filter((item) => item.spec.stage === stage));
+	const shown = $derived(items.filter((item) => item.spec.stage === stage && item.applies(edit)));
 	const sections = $derived([...new Set(shown.map((item) => item.spec.section))]);
 	const within = (section: string, advanced: boolean) =>
 		shown.filter((item) => item.spec.section === section && item.spec.advanced === advanced);

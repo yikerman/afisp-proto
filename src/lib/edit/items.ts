@@ -10,6 +10,7 @@ import {
 	slider,
 	type Choice,
 	type Control,
+	type ControlId,
 	type Picker,
 	type EditState
 } from './controls';
@@ -28,13 +29,25 @@ export interface Item {
 	read(state: EditState, initial: EditState): unknown;
 	/** The part of the edit that changes when the item is set to `value`. */
 	write(value: never, state: EditState, initial: EditState): Partial<EditState>;
+	/** Whether the item has any effect in this state; it is shown only then. */
+	applies(state: EditState): boolean;
 }
+
+const always = () => true;
+const manualLens = (state: EditState) => state.lens === 'manual';
+const conditions: Partial<Record<ControlId, Item['applies']>> = {
+	lensDistortion: manualLens,
+	lensVignetting: manualLens,
+	lensRed: manualLens,
+	lensBlue: manualLens
+};
 
 const own = controlIds.map((id): Item => ({
 	id,
 	spec: controls[id],
 	read: (state) => state[id],
-	write: (value) => ({ [id]: value })
+	write: (value) => ({ [id]: value }),
+	applies: conditions[id] ?? always
 }));
 
 const dot = (a: Vec3, b: Vec3) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
@@ -76,6 +89,7 @@ const pickMiddleGrey: Item = {
 		advanced: false
 	},
 	read: () => null,
+	applies: always,
 	write: (sample: Vec3, state) => {
 		const luminance = dot(sample, rec2020Luminance);
 		// Black has no exposure that makes it middle grey.
@@ -95,6 +109,7 @@ const pickNeutral: Item = {
 		advanced: false
 	},
 	read: () => null,
+	applies: always,
 	write: (sample: Vec3, state) => {
 		// Black has no colour to neutralise.
 		if (dot(sample, rec2020Luminance) === 0) return {};
@@ -119,6 +134,7 @@ const lightSource: Item = {
 		],
 		default: 'as-shot'
 	} satisfies Choice,
+	applies: always,
 	read: (state, initial): LightName =>
 		lightNames.find((name) => sameLight(state, namedLight(name, initial))) ?? 'custom',
 	write: (name: LightName, _, initial) => (name === 'custom' ? {} : namedLight(name, initial))
@@ -164,6 +180,7 @@ function fromPolar({ hue, chroma }: Polar) {
 const lightHue: Item = {
 	id: 'lightHue',
 	spec: slider({ ...light, label: 'Hue', unit: '°', step: 0.1, min: 0, max: 360, default: 0 }),
+	applies: always,
 	read: (state) => polar(state).hue,
 	write: (hue: number, state) => fromPolar({ ...polar(state), hue })
 };
@@ -171,6 +188,7 @@ const lightHue: Item = {
 const lightChroma: Item = {
 	id: 'lightChroma',
 	spec: slider({ ...light, label: 'Chroma', unit: '', step: 0.1, min: 0, max: 250, default: 0 }),
+	applies: always,
 	read: (state) => polar(state).chroma,
 	write: (chroma: number, state) => fromPolar({ ...polar(state), chroma })
 };

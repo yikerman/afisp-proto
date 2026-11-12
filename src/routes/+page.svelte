@@ -70,8 +70,7 @@
 
 	async function pick(item: Item, at: Vec2) {
 		armed = null;
-		const { calibration } = toEdit(session.edit);
-		const sample = await renderer!.sample(calibration, at, PICK_RADIUS);
+		const sample = await renderer!.sample(toEdit(session.edit), at, PICK_RADIUS);
 		session.set(item.id, sample, item.write(sample as never, session.edit, session.file!.initial));
 	}
 

@@ -3,7 +3,7 @@ import { localContrast } from '../pipeline/adjustments/localContrast';
 import { everywhere } from '../pipeline/adjustments/mask';
 import { instance } from '../pipeline/adjustments/module';
 import { toneCurve, toneEqualizer } from '../pipeline/adjustments/toneEqualizer';
-import type { Edit } from '../pipeline/render';
+import type { Edit, LensChoice } from '../pipeline/render';
 import { asShotIlluminant } from '../pipeline/restoration/calibrate';
 import type { RawMeta } from '../raw/decode';
 import { defaults, type EditState } from './controls';
@@ -15,7 +15,19 @@ export const initialState = (meta: RawMeta): EditState => ({
 });
 
 /** What the controls mean to the pipeline. */
+const lensChoice = (state: EditState): LensChoice =>
+	state.lens === 'manual'
+		? {
+				source: 'manual',
+				distortion: state.lensDistortion,
+				vignetting: state.lensVignetting,
+				red: state.lensRed,
+				blue: state.lensBlue
+			}
+		: { source: state.lens };
+
 export const toEdit = (state: EditState): Edit => ({
+	lens: lensChoice(state),
 	calibration: {
 		light: { temperature: state.temperature, tint: state.tint },
 		exposure: state.exposure

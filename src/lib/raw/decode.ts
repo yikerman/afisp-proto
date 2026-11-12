@@ -3,6 +3,7 @@ import wasmUrl from '@colorhythm/libraw-wasm/libraw.wasm?url';
 import type { Matrix3, Vec3 } from '../math/matrix';
 import type { Size } from '../gpu/image';
 import { GREEN, type BayerPattern, type Channel } from './bayer';
+import { embeddedLensCorrection, type LensCorrection } from './lensData';
 
 /** Quarter turns clockwise that bring the sensor image upright. */
 export type QuarterTurns = 0 | 1 | 2 | 3;
@@ -35,6 +36,8 @@ export interface RawFile {
 	readonly sensor: Uint16Array<ArrayBuffer>;
 	readonly sensorSize: Size;
 	readonly meta: RawMeta;
+	/** The lens correction the camera wrote into the file; no correction if it wrote none. */
+	readonly lens: LensCorrection;
 }
 
 const range = <N extends number>(n: N) => Array.from({ length: n }, (_, i) => i);
@@ -53,6 +56,7 @@ const quarterTurns: Record<number, QuarterTurns> = { 0: 0, 3: 2, 5: 3, 6: 1 };
  * metadata into `RawMeta`. Throws for files the pipeline does not handle.
  */
 export async function decode(file: ArrayBuffer): Promise<RawFile> {
+	const lens = embeddedLensCorrection(file);
 	await LibRaw.initialize(fetch(wasmUrl));
 	using raw = new LibRaw();
 	await raw.waitUntilReady();
@@ -89,6 +93,7 @@ export async function decode(file: ArrayBuffer): Promise<RawFile> {
 	return {
 		sensor,
 		sensorSize: { width: raw.getRawWidth(), height: raw.getRawHeight() },
+		lens,
 		meta: {
 			camera: `${maker.make} ${maker.model}`,
 			lens: raw.getLensInfo().Lens,
