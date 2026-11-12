@@ -29,7 +29,7 @@ function scenePixels(): Float16Array {
 }
 
 beforeAll(async () => {
-	gpu = await acquireGpu();
+	gpu = await acquireGpu('accept');
 	reference = measure(gpu, upload(gpu, 'scene', size, 'rgba16float', scenePixels()));
 });
 

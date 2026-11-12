@@ -555,7 +555,7 @@ const tolerance = (expected: number) => (2 ** -11 + 2 ** -16) * Math.abs(expecte
 
 for (const [name, pattern] of Object.entries(patterns)) {
 	test(`matches the CPU RCD oracle, ${name}`, async () => {
-		const gpu = await acquireGpu();
+		const gpu = await acquireGpu('accept');
 		const pixels = syntheticMosaic(pattern);
 		const got = await runDemosaic(gpu, pixels, pattern);
 		const expected = rcdDemosaic(Float64Array.from(pixels), size.width, size.height, pattern);
@@ -575,7 +575,7 @@ for (const [name, pattern] of Object.entries(patterns)) {
 }
 
 test('measured samples are preserved', async () => {
-	const gpu = await acquireGpu();
+	const gpu = await acquireGpu('accept');
 	for (const pattern of Object.values(patterns)) {
 		const pixels = syntheticMosaic(pattern);
 		const got = await runDemosaic(gpu, pixels, pattern);
@@ -589,7 +589,7 @@ test('measured samples are preserved', async () => {
 });
 
 test('a constant grey mosaic gives a constant grey image', async () => {
-	const gpu = await acquireGpu();
+	const gpu = await acquireGpu('accept');
 	for (const pattern of Object.values(patterns)) {
 		for (const grey of [0, 0.18, 1]) {
 			const got = await runDemosaic(

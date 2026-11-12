@@ -327,7 +327,7 @@ function reference(scene: Vec3): Vec3 {
 
 /** Runs the transform on one row of pixels; returns the inputs as stored (f16) and the outputs. */
 async function evaluate(pixels: readonly Vec3[]): Promise<{ input: Vec3[]; output: Vec3[] }> {
-	const gpu = await acquireGpu();
+	const gpu = await acquireGpu('accept');
 	const data = new Float16Array(pixels.flatMap(([r, g, b]) => [r, g, b, 1]));
 	const size = { width: pixels.length, height: 1 };
 	const scene: Image<'scene'> = upload(gpu, 'scene', size, 'rgba16float', data);

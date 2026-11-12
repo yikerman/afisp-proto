@@ -2,10 +2,19 @@ export interface Gpu {
 	readonly device: GPUDevice;
 }
 
-/** Boundary to the platform: the only place that deals with WebGPU being absent. */
-export async function acquireGpu(): Promise<Gpu> {
+/**
+ * Boundary to the platform: the only place that deals with WebGPU being absent
+ * or emulated. A software adapter computes correctly but takes seconds per
+ * frame at full resolution and stalls the browser, so only tests accept one.
+ */
+export async function acquireGpu(software: 'refuse' | 'accept' = 'refuse'): Promise<Gpu> {
 	const adapter = await navigator.gpu?.requestAdapter({ powerPreference: 'high-performance' });
 	if (!adapter) throw new Error('WebGPU is not available in this browser.');
+	if (adapter.info.isFallbackAdapter && software === 'refuse') {
+		throw new Error(
+			'WebGPU is running in software: the browser could not reach the graphics card.'
+		);
+	}
 	const device = await adapter.requestDevice({
 		// Full-resolution processing: a sensor's long side must fit in one texture,
 		// and a whole image in one buffer when it is read back for export.

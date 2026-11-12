@@ -5,7 +5,7 @@ import { run } from './pass';
 import { f32, mat3x3f, vec2f, vec3f } from './uniforms';
 
 test('a pass reads its textures and uniforms at each pixel', async () => {
-	const gpu = await acquireGpu();
+	const gpu = await acquireGpu('accept');
 	const size = { width: 3, height: 2 };
 	const source = upload(gpu, 'source', size, 'r32float', new Float32Array([0, 1, 2, 3, 4, 5]));
 	const counts = upload(gpu, 'counts', size, 'r16uint', new Uint16Array([10, 20, 30, 40, 50, 60]));
