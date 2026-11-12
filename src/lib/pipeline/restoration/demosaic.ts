@@ -381,20 +381,27 @@ export function demosaic(
 	// Intermediates have no pipeline encoding.
 	const step = (...args: Parameters<typeof pass>): Texture => run<never>(gpu, pass(...args));
 
+	// Each intermediate is released after its last use, so a later one can take its texture.
 	const cfa = mosaic;
 	const green = step('ppg_demosaic_green', ppgDemosaicGreen, { cfa }, 'RGBA32F');
 	const ppg = step('ppg_demosaic_redblue', ppgDemosaicRedblue, { ppg: green }, 'RGBA32F');
+	green.destroy();
 	const VH_Dir = step('rcd_step_1', rcdStep1, { cfa }, 'R32F');
 	const lpf = step('rcd_step_2', rcdStep2, { cfa }, 'R32F');
 	const rgb3 = step('rcd_step_3', rcdStep3, { cfa, lpf, VH_Dir }, 'RGBA32F');
+	lpf.destroy();
 	const PQ_Dir = step('rcd_step_4_1', rcdStep4_1, { cfa }, 'R32F');
 	const rgb42 = step('rcd_step_4_2', rcdStep4_2, { rgb: rgb3, PQ_Dir }, 'RGBA32F');
+	rgb3.destroy();
+	PQ_Dir.destroy();
 	const rgb43 = step('rcd_step_4_3', rcdStep4_3, { rgb: rgb42, VH_Dir }, 'RGBA32F');
+	rgb42.destroy();
+	VH_Dir.destroy();
 	const out = run<'camera'>(
 		gpu,
 		pass('rcd_write_output', rcdWriteOutput, { rgb: rgb43, ppg }, 'RGBA16F')
 	);
-
-	for (const texture of [green, ppg, VH_Dir, lpf, rgb3, PQ_Dir, rgb42, rgb43]) texture.destroy();
+	rgb43.destroy();
+	ppg.destroy();
 	return out;
 }
