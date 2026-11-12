@@ -1,74 +1,61 @@
-/** Column-major, as WGSL constructs and stores matrices. */
+/** Column-major, as GLSL constructs matrices and `uniformMatrix3fv` takes them untransposed. */
 export type Mat3 = readonly [
 	number, number, number,
 	number, number, number,
 	number, number, number
 ]; // prettier-ignore
 
+/** GLSL ES 3.00 types a uniform can have, with the values that set them. */
 export type Uniform =
-	| { readonly type: 'f32'; readonly value: number }
-	| { readonly type: 'vec2f'; readonly value: readonly [number, number] }
-	| { readonly type: 'vec3f'; readonly value: readonly [number, number, number] }
-	| { readonly type: 'vec4f'; readonly value: readonly [number, number, number, number] }
-	| { readonly type: 'mat3x3f'; readonly value: Mat3 };
+	| { readonly type: 'float'; readonly value: number }
+	| { readonly type: 'vec2'; readonly value: readonly [number, number] }
+	| { readonly type: 'vec3'; readonly value: readonly [number, number, number] }
+	| { readonly type: 'vec4'; readonly value: readonly [number, number, number, number] }
+	| { readonly type: 'mat3'; readonly value: Mat3 }
+	| { readonly type: `float[${number}]`; readonly value: readonly number[] };
 
 export type Uniforms = Readonly<Record<string, Uniform>>;
 
-export const f32 = (value: number): Uniform => ({ type: 'f32', value });
-export const vec2f = (value: readonly [number, number]): Uniform => ({ type: 'vec2f', value });
-export const vec3f = (value: readonly [number, number, number]): Uniform => ({
-	type: 'vec3f',
+export const float = (value: number): Uniform => ({ type: 'float', value });
+export const vec2 = (value: readonly [number, number]): Uniform => ({ type: 'vec2', value });
+export const vec3 = (value: readonly [number, number, number]): Uniform => ({
+	type: 'vec3',
 	value
 });
-export const vec4f = (value: readonly [number, number, number, number]): Uniform => ({
-	type: 'vec4f',
+export const vec4 = (value: readonly [number, number, number, number]): Uniform => ({
+	type: 'vec4',
 	value
 });
-export const mat3x3f = (value: Mat3): Uniform => ({ type: 'mat3x3f', value });
+export const mat3 = (value: Mat3): Uniform => ({ type: 'mat3', value });
+export const floats = (value: readonly number[]): Uniform => ({
+	type: `float[${value.length}]`,
+	value
+});
 
-// WGSL host-shareable layout (https://www.w3.org/TR/WGSL/#alignment-and-size), in floats.
-const layout: Record<Uniform['type'], { align: number; size: number }> = {
-	f32: { align: 1, size: 1 },
-	vec2f: { align: 2, size: 2 },
-	vec3f: { align: 4, size: 3 },
-	vec4f: { align: 4, size: 4 },
-	mat3x3f: { align: 4, size: 12 }
-};
-
-const roundUp = (n: number, multiple: number) => Math.ceil(n / multiple) * multiple;
-
+/** `struct name { ... };`, one member per uniform, in GLSL's `type[n] name` array syntax. */
 export function structDeclaration(name: string, uniforms: Uniforms): string {
-	const fields = Object.entries(uniforms).map(([field, u]) => `\t${field}: ${u.type},`);
-	return `struct ${name} {\n${fields.join('\n')}\n}`;
+	const members = Object.entries(uniforms).map(([member, u]) => `\t${u.type} ${member};`);
+	return `struct ${name} {\n${members.join('\n')}\n};`;
 }
 
-export function pack(uniforms: Uniforms): Float32Array<ArrayBuffer> {
-	const placed: { offset: number; uniform: Uniform }[] = [];
-	let end = 0;
-	for (const uniform of Object.values(uniforms)) {
-		const { align, size } = layout[uniform.type];
-		const offset = roundUp(end, align);
-		placed.push({ offset, uniform });
-		end = offset + size;
+/** Sets `uniform` at `location`; a null location is a uniform the compiler removed as unused. */
+export function setUniform(
+	gl: WebGL2RenderingContext,
+	location: WebGLUniformLocation | null,
+	uniform: Uniform
+): void {
+	switch (uniform.type) {
+		case 'float':
+			return gl.uniform1f(location, uniform.value);
+		case 'vec2':
+			return gl.uniform2fv(location, new Float32Array(uniform.value));
+		case 'vec3':
+			return gl.uniform3fv(location, new Float32Array(uniform.value));
+		case 'vec4':
+			return gl.uniform4fv(location, new Float32Array(uniform.value));
+		case 'mat3':
+			return gl.uniformMatrix3fv(location, false, new Float32Array(uniform.value));
+		default:
+			return gl.uniform1fv(location, new Float32Array(uniform.value));
 	}
-	const data = new Float32Array(roundUp(end, 4));
-	for (const { offset, uniform } of placed) {
-		switch (uniform.type) {
-			case 'f32':
-				data[offset] = uniform.value;
-				break;
-			case 'vec2f':
-			case 'vec3f':
-			case 'vec4f':
-				data.set(uniform.value, offset);
-				break;
-			case 'mat3x3f':
-				// Each column is a vec3f, aligned to 4 floats.
-				for (let column = 0; column < 3; column++) {
-					data.set(uniform.value.slice(column * 3, column * 3 + 3), offset + column * 4);
-				}
-				break;
-		}
-	}
-	return data;
 }

@@ -1,120 +1,163 @@
 import type { Gpu } from './gpu';
-import { createImage, type Encoding, type Format, type Image, type Size } from './image';
-import { pack, structDeclaration, type Uniforms } from './uniforms';
+import {
+	createImage,
+	type Encoding,
+	type Format,
+	type Image,
+	type Size,
+	type Texture
+} from './image';
+import { setUniform, structDeclaration, type Uniforms } from './uniforms';
 
 /**
  * One image-to-image step: a pure function of its textures and uniforms,
  * evaluated independently at every output pixel.
  *
- * `wgsl` must define `fn pixel(p: vec2i) -> vec4f`. It sees each texture under
- * its key in `textures` and the uniforms as the fields of `u`. It can read
- * nothing else, which is what lets a caller restrict a module's inputs by
- * choosing what to bind.
+ * `glsl` is GLSL ES 3.00 and must define `vec4 pixel(ivec2 p)`. It sees each
+ * texture under its key in `textures` (a `usampler2D` for integer formats, a
+ * `sampler2D` otherwise, read with `texelFetch`) and the uniforms as the
+ * members of `u`. It can read nothing else, which is what lets a caller
+ * restrict a module's inputs by choosing what to bind.
  */
 export interface Pass {
 	readonly label: string;
-	readonly wgsl: string;
-	readonly textures: Readonly<Record<string, GPUTexture>>;
+	readonly glsl: string;
+	readonly textures: Readonly<Record<string, Texture>>;
 	readonly uniforms: Uniforms;
 	readonly size: Size;
 	readonly format: Format;
 }
 
-const sampleType = (texture: GPUTexture): 'uint' | 'unfilterable-float' =>
-	texture.format.endsWith('uint') ? 'uint' : 'unfilterable-float';
-
-function shaderSource(pass: Pass): string {
-	const hasUniforms = Object.keys(pass.uniforms).length > 0;
-	const textures = Object.entries(pass.textures).map(
-		([name, texture], i) =>
-			`@group(0) @binding(${i + 1}) var ${name}: texture_2d<${sampleType(texture) === 'uint' ? 'u32' : 'f32'}>;`
-	);
-	return `
-${hasUniforms ? `${structDeclaration('Uniforms', pass.uniforms)}\n@group(0) @binding(0) var<uniform> u: Uniforms;` : ''}
-${textures.join('\n')}
-
-${pass.wgsl}
-
-@vertex
-fn vertex(@builtin(vertex_index) i: u32) -> @builtin(position) vec4f {
+const vertexSource = `#version 300 es
+void main() {
 	// One triangle covering the viewport.
-	return vec4f(f32(i32(i & 1u) * 4 - 1), f32(i32(i >> 1u) * 4 - 1), 0, 1);
-}
+	gl_Position = vec4(float((gl_VertexID & 1) * 4 - 1), float((gl_VertexID >> 1) * 4 - 1), 0, 1);
+}`;
 
-@fragment
-fn fragment(@builtin(position) position: vec4f) -> @location(0) vec4f {
-	return pixel(vec2i(position.xy));
+function fragmentSource(pass: Pass): string {
+	const hasUniforms = Object.keys(pass.uniforms).length > 0;
+	const samplers = Object.entries(pass.textures).map(
+		([name, texture]) =>
+			`uniform ${texture.format === 'R16UI' ? 'usampler2D' : 'sampler2D'} ${name};`
+	);
+	// gl_FragCoord is at pixel centres, so its integer part is the pixel's index.
+	return `#version 300 es
+precision highp float;
+precision highp int;
+precision highp sampler2D;
+precision highp usampler2D;
+${hasUniforms ? `${structDeclaration('Uniforms', pass.uniforms)}\nuniform Uniforms u;` : ''}
+${samplers.join('\n')}
+
+${pass.glsl}
+
+out vec4 pass_output;
+void main() {
+	pass_output = pixel(ivec2(gl_FragCoord.xy));
 }
 `;
 }
 
-interface Compiled {
-	readonly pipeline: GPURenderPipeline;
-	readonly layout: GPUBindGroupLayout;
+interface Program {
+	readonly program: WebGLProgram;
+	readonly locations: Readonly<Record<string, WebGLUniformLocation | null>>;
 }
 
-// Compilation is a pure function of the source and output format, so it is memoised on them.
-const compiled = new WeakMap<GPUDevice, Map<string, Compiled>>();
+function shader(gl: WebGL2RenderingContext, type: GLenum, source: string): WebGLShader {
+	const shader = gl.createShader(type)!;
+	gl.shaderSource(shader, source);
+	gl.compileShader(shader);
+	return shader;
+}
 
-function compile(gpu: Gpu, pass: Pass): Compiled {
-	let cache = compiled.get(gpu.device);
-	if (!cache) compiled.set(gpu.device, (cache = new Map()));
-	const code = shaderSource(pass);
-	const key = `${pass.format}\n${code}`;
-	let entry = cache.get(key);
+// Compilation is a pure function of the source, so it is memoised on it. The output
+// format does not enter: every format a pass writes takes a vec4.
+const compiled = new WeakMap<Gpu, Map<string, Program>>();
+
+function compile(gpu: Gpu, pass: Pass): Program {
+	const { gl } = gpu;
+	let cache = compiled.get(gpu);
+	if (!cache) compiled.set(gpu, (cache = new Map()));
+	const source = fragmentSource(pass);
+	let entry = cache.get(source);
 	if (!entry) {
-		const entries: GPUBindGroupLayoutEntry[] = Object.values(pass.textures).map((texture, i) => ({
-			binding: i + 1,
-			visibility: GPUShaderStage.FRAGMENT,
-			texture: { sampleType: sampleType(texture) }
-		}));
-		if (Object.keys(pass.uniforms).length > 0) {
-			entries.push({ binding: 0, visibility: GPUShaderStage.FRAGMENT, buffer: {} });
+		const program = gl.createProgram();
+		const vertex = shader(gl, gl.VERTEX_SHADER, vertexSource);
+		const fragment = shader(gl, gl.FRAGMENT_SHADER, source);
+		gl.attachShader(program, vertex);
+		gl.attachShader(program, fragment);
+		gl.linkProgram(program);
+		if (!gl.getProgramParameter(program, gl.LINK_STATUS)) {
+			throw new Error(
+				`${pass.label}: ${gl.getShaderInfoLog(fragment) || gl.getProgramInfoLog(program)}`
+			);
 		}
-		const layout = gpu.device.createBindGroupLayout({ label: pass.label, entries });
-		const module = gpu.device.createShaderModule({ label: pass.label, code });
-		const pipeline = gpu.device.createRenderPipeline({
-			label: pass.label,
-			layout: gpu.device.createPipelineLayout({ bindGroupLayouts: [layout] }),
-			vertex: { module },
-			fragment: { module, targets: [{ format: pass.format }] }
-		});
-		cache.set(key, (entry = { pipeline, layout }));
+		gl.deleteShader(vertex);
+		gl.deleteShader(fragment);
+		const names = [
+			...Object.keys(pass.textures),
+			...Object.keys(pass.uniforms).map((name) => `u.${name}`)
+		];
+		const locations = Object.fromEntries(
+			names.map((name) => [name, gl.getUniformLocation(program, name)])
+		);
+		cache.set(source, (entry = { program, locations }));
 	}
 	return entry;
 }
 
-/** Runs the pass into `target`, which may be a canvas texture. */
-export function runInto(gpu: Gpu, pass: Pass, target: GPUTexture): void {
-	const { pipeline, layout } = compile(gpu, pass);
-	const entries: GPUBindGroupEntry[] = Object.values(pass.textures).map((texture, i) => ({
-		binding: i + 1,
-		resource: texture.createView()
-	}));
-	const data = pack(pass.uniforms);
-	let buffer: GPUBuffer | undefined;
-	if (data.length > 0) {
-		buffer = gpu.device.createBuffer({
-			size: data.byteLength,
-			usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST
-		});
-		gpu.device.queue.writeBuffer(buffer, 0, data);
-		entries.push({ binding: 0, resource: { buffer } });
-	}
-	const encoder = gpu.device.createCommandEncoder({ label: pass.label });
-	const render = encoder.beginRenderPass({
-		colorAttachments: [{ view: target.createView(), loadOp: 'clear', storeOp: 'store' }]
+/** Runs the pass into `target`, which has the pass's size and format. */
+function runInto(gpu: Gpu, pass: Pass, target: Texture): void {
+	const { gl, framebuffer } = gpu;
+	const { program, locations } = compile(gpu, pass);
+	gl.useProgram(program);
+	Object.entries(pass.textures).forEach(([name, texture], unit) => {
+		gl.activeTexture(gl.TEXTURE0 + unit);
+		gl.bindTexture(gl.TEXTURE_2D, texture.texture);
+		gl.uniform1i(locations[name], unit);
 	});
-	render.setPipeline(pipeline);
-	render.setBindGroup(0, gpu.device.createBindGroup({ layout, entries }));
-	render.draw(3);
-	render.end();
-	gpu.device.queue.submit([encoder.finish()]);
-	buffer?.destroy();
+	for (const [name, uniform] of Object.entries(pass.uniforms)) {
+		setUniform(gl, locations[`u.${name}`], uniform);
+	}
+	gl.bindFramebuffer(gl.FRAMEBUFFER, framebuffer);
+	gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, target.texture, 0);
+	gl.viewport(0, 0, pass.size.width, pass.size.height);
+	gl.drawArrays(gl.TRIANGLES, 0, 3);
 }
 
 export function run<E extends Encoding>(gpu: Gpu, pass: Pass): Image<E> {
-	const image = createImage<E>(gpu, pass.label, pass.size, pass.format);
+	const image = createImage<E>(gpu, pass.size, pass.format);
 	runInto(gpu, pass, image);
 	return image;
+}
+
+/**
+ * The pass's output as a bitmap for an `ImageBitmapRenderingContext`, pixel
+ * for pixel, transparent where the pass writes alpha 0.
+ *
+ * A bitmap is the one way a frame leaves the GPU's OffscreenCanvas without a
+ * copy through the CPU. The canvas's drawing buffer has its first row at the
+ * bottom of the picture, unlike textures here, so the copy into it flips rows.
+ */
+export function present(gpu: Gpu, pass: Pass & { readonly format: 'RGBA8' }): ImageBitmap {
+	const { gl, canvas, framebuffer } = gpu;
+	const { width, height } = pass.size;
+	const frame = run<never>(gpu, pass);
+	if (canvas.width !== width || canvas.height !== height) {
+		canvas.width = width;
+		canvas.height = height;
+	}
+	gl.bindFramebuffer(gl.READ_FRAMEBUFFER, framebuffer);
+	gl.framebufferTexture2D(
+		gl.READ_FRAMEBUFFER,
+		gl.COLOR_ATTACHMENT0,
+		gl.TEXTURE_2D,
+		frame.texture,
+		0
+	);
+	gl.bindFramebuffer(gl.DRAW_FRAMEBUFFER, null);
+	gl.blitFramebuffer(0, 0, width, height, 0, height, width, 0, gl.COLOR_BUFFER_BIT, gl.NEAREST);
+	gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+	frame.destroy();
+	return canvas.transferToImageBitmap();
 }

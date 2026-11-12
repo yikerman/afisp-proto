@@ -536,7 +536,7 @@ function syntheticMosaic(pattern: BayerPattern): Float32Array {
 }
 
 async function runDemosaic(gpu: Gpu, pixels: Float32Array, pattern: BayerPattern) {
-	const mosaic = upload<'mosaic'>(gpu, 'mosaic', size, 'r32float', pixels);
+	const mosaic = upload<'mosaic'>(gpu, size, 'R32F', pixels);
 	const result = demosaic(gpu, mosaic, pattern);
 	const out = new Float16Array(await download(gpu, result));
 	mosaic.destroy();

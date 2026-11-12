@@ -1,9 +1,10 @@
 import { MIDDLE_GREY, rec2020Luminance } from '../colour/spaces';
 import type { Gpu } from '../gpu/gpu';
-import type { Image, Size } from '../gpu/image';
+import { glslFloat } from '../gpu/glsl';
+import type { Image, Size, Texture } from '../gpu/image';
 import { run } from '../gpu/pass';
-import { f32, vec2f } from '../gpu/uniforms';
-import { wgslVector } from '../math/matrix';
+import { float, vec2 } from '../gpu/uniforms';
+import { glslVector } from '../math/matrix';
 
 /**
  * The restored scene and the fields derived from it. This is everything an
@@ -18,19 +19,19 @@ export interface Reference {
 	readonly smoothedStops: Image<'stops'>;
 }
 
-/** WGSL view of the reference at one pixel, for shaders that bind its three textures. */
-export const referenceWgsl = /* wgsl */ `
+/** GLSL view of the reference at one pixel, for shaders that bind its three textures. */
+export const referenceGlsl = /* glsl */ `
 struct Reference {
-	scene: vec3f,
-	stops: f32,
-	smoothed_stops: f32,
-}
+	vec3 scene;
+	float stops;
+	float smoothed_stops;
+};
 
-fn reference_at(p: vec2i) -> Reference {
+Reference reference_at(ivec2 p) {
 	return Reference(
-		textureLoad(scene, p, 0).rgb,
-		textureLoad(stops, p, 0).r,
-		textureLoad(smoothed_stops, p, 0).r,
+		texelFetch(scene, p, 0).rgb,
+		texelFetch(stops, p, 0).r,
+		texelFetch(smoothed_stops, p, 0).r
 	);
 }`;
 
@@ -43,10 +44,10 @@ export const referenceTextures = (reference: Reference) => ({
 // Black has no finite distance from middle grey in stops; the field bottoms out here.
 const DARKEST_STOPS = -16;
 
-const stopsWgsl = /* wgsl */ `
-fn pixel(p: vec2i) -> vec4f {
-	let luminance = dot(textureLoad(scene, p, 0).rgb, ${wgslVector(rec2020Luminance)});
-	return vec4f(max(log2(luminance / ${MIDDLE_GREY}), ${DARKEST_STOPS}), 0, 0, 1);
+const stopsGlsl = /* glsl */ `
+vec4 pixel(ivec2 p) {
+	float luminance = dot(texelFetch(scene, p, 0).rgb, ${glslVector(rec2020Luminance)});
+	return vec4(max(log2(luminance / ${glslFloat(MIDDLE_GREY)}), ${glslFloat(DARKEST_STOPS)}), 0, 0, 1);
 }`;
 
 // Smoothing is a guided filter with the image as its own guide (He, Sun & Tang,
@@ -66,63 +67,63 @@ export interface Smoothing {
 const ZONES: Smoothing = { radius: 0.025, edgeVariance: 0.25 };
 
 /** Block means of the value and its square, in r and g. */
-const reduceWgsl = /* wgsl */ `
-fn pixel(p: vec2i) -> vec4f {
-	let factor = i32(u.factor);
-	let limit = vec2i(textureDimensions(stops)) - 1;
-	var sum = vec2f(0);
-	for (var y = 0; y < factor; y++) {
-		for (var x = 0; x < factor; x++) {
-			let v = textureLoad(stops, min(p * factor + vec2i(x, y), limit), 0).r;
-			sum += vec2f(v, v * v);
+const reduceGlsl = /* glsl */ `
+vec4 pixel(ivec2 p) {
+	int factor = int(u.factor);
+	ivec2 limit = textureSize(stops, 0) - 1;
+	vec2 sum = vec2(0);
+	for (int y = 0; y < factor; y++) {
+		for (int x = 0; x < factor; x++) {
+			float v = texelFetch(stops, min(p * factor + ivec2(x, y), limit), 0).r;
+			sum += vec2(v, v * v);
 		}
 	}
-	return vec4f(sum / f32(factor * factor), 0, 1);
+	return vec4(sum / float(factor * factor), 0, 1);
 }`;
 
-const boxWgsl = /* wgsl */ `
-fn pixel(p: vec2i) -> vec4f {
-	let radius = i32(u.radius);
-	let limit = vec2i(textureDimensions(image)) - 1;
-	var sum = vec4f(0);
-	for (var i = -radius; i <= radius; i++) {
-		sum += textureLoad(image, clamp(p + i * vec2i(u.axis), vec2i(0), limit), 0);
+const boxGlsl = /* glsl */ `
+vec4 pixel(ivec2 p) {
+	int radius = int(u.radius);
+	ivec2 limit = textureSize(image, 0) - 1;
+	vec4 sum = vec4(0);
+	for (int i = -radius; i <= radius; i++) {
+		sum += texelFetch(image, clamp(p + i * ivec2(u.axis), ivec2(0), limit), 0);
 	}
-	return sum / f32(2 * radius + 1);
+	return sum / float(2 * radius + 1);
 }`;
 
 /** Per window, the line `smoothed = a * value + b` that best fits it; a and b in r and g. */
-const coefficientsWgsl = /* wgsl */ `
-fn pixel(p: vec2i) -> vec4f {
-	let moments = textureLoad(means, p, 0);
-	let variance = moments.g - moments.r * moments.r;
-	let a = variance / (variance + u.edge_variance);
-	return vec4f(a, (1 - a) * moments.r, 0, 1);
+const coefficientsGlsl = /* glsl */ `
+vec4 pixel(ivec2 p) {
+	vec4 moments = texelFetch(means, p, 0);
+	float variance = moments.g - moments.r * moments.r;
+	float a = variance / (variance + u.edge_variance);
+	return vec4(a, (1.0 - a) * moments.r, 0, 1);
 }`;
 
-const applyWgsl = /* wgsl */ `
-fn pixel(p: vec2i) -> vec4f {
-	let limit = vec2i(textureDimensions(coefficients)) - 1;
-	let position = (vec2f(p) + 0.5) / u.factor - 0.5;
-	let corner = vec2i(floor(position));
-	let t = position - floor(position);
-	let c00 = textureLoad(coefficients, clamp(corner, vec2i(0), limit), 0);
-	let c10 = textureLoad(coefficients, clamp(corner + vec2i(1, 0), vec2i(0), limit), 0);
-	let c01 = textureLoad(coefficients, clamp(corner + vec2i(0, 1), vec2i(0), limit), 0);
-	let c11 = textureLoad(coefficients, clamp(corner + vec2i(1, 1), vec2i(0), limit), 0);
-	let c = mix(mix(c00, c10, t.x), mix(c01, c11, t.x), t.y);
-	return vec4f(c.r * textureLoad(stops, p, 0).r + c.g, 0, 0, 1);
+const applyGlsl = /* glsl */ `
+vec4 pixel(ivec2 p) {
+	ivec2 limit = textureSize(coefficients, 0) - 1;
+	vec2 position = (vec2(p) + 0.5) / u.factor - 0.5;
+	ivec2 corner = ivec2(floor(position));
+	vec2 t = position - floor(position);
+	vec4 c00 = texelFetch(coefficients, clamp(corner, ivec2(0), limit), 0);
+	vec4 c10 = texelFetch(coefficients, clamp(corner + ivec2(1, 0), ivec2(0), limit), 0);
+	vec4 c01 = texelFetch(coefficients, clamp(corner + ivec2(0, 1), ivec2(0), limit), 0);
+	vec4 c11 = texelFetch(coefficients, clamp(corner + ivec2(1, 1), ivec2(0), limit), 0);
+	vec4 c = mix(mix(c00, c10, t.x), mix(c01, c11, t.x), t.y);
+	return vec4(c.r * texelFetch(stops, p, 0).r + c.g, 0, 0, 1);
 }`;
 
-function box(gpu: Gpu, image: GPUTexture, radius: number): GPUTexture {
-	const blur = (source: GPUTexture, axis: readonly [number, number]) =>
+function box(gpu: Gpu, image: Texture, radius: number): Texture {
+	const blur = (source: Texture, axis: readonly [number, number]) =>
 		run(gpu, {
 			label: 'box',
-			wgsl: boxWgsl,
+			glsl: boxGlsl,
 			textures: { image: source },
-			uniforms: { radius: f32(radius), axis: vec2f(axis) },
+			uniforms: { radius: float(radius), axis: vec2(axis) },
 			size: source,
-			format: 'rgba32float'
+			format: 'RGBA32F'
 		});
 	const horizontal = blur(image, [1, 0]);
 	const both = blur(horizontal, [0, 1]);
@@ -142,29 +143,29 @@ export function smooth(gpu: Gpu, stops: Image<'stops'>, smoothing: Smoothing): I
 
 	const reduced = run(gpu, {
 		label: 'reduce',
-		wgsl: reduceWgsl,
+		glsl: reduceGlsl,
 		textures: { stops },
-		uniforms: { factor: f32(factor) },
+		uniforms: { factor: float(factor) },
 		size: reducedSize,
-		format: 'rgba32float'
+		format: 'RGBA32F'
 	});
 	const means = box(gpu, reduced, radius);
 	const perWindow = run(gpu, {
 		label: 'coefficients',
-		wgsl: coefficientsWgsl,
+		glsl: coefficientsGlsl,
 		textures: { means },
-		uniforms: { edge_variance: f32(smoothing.edgeVariance) },
+		uniforms: { edge_variance: float(smoothing.edgeVariance) },
 		size: reducedSize,
-		format: 'rgba32float'
+		format: 'RGBA32F'
 	});
 	const coefficients = box(gpu, perWindow, radius);
 	const smoothed = run<'stops'>(gpu, {
 		label: 'smoothed stops',
-		wgsl: applyWgsl,
+		glsl: applyGlsl,
 		textures: { stops, coefficients },
-		uniforms: { factor: f32(factor) },
+		uniforms: { factor: float(factor) },
 		size: stops,
-		format: 'r32float'
+		format: 'R32F'
 	});
 	for (const texture of [reduced, means, perWindow, coefficients]) texture.destroy();
 	return smoothed;
@@ -174,11 +175,11 @@ export function smooth(gpu: Gpu, stops: Image<'stops'>, smoothing: Smoothing): I
 export const stopsOf = (gpu: Gpu, scene: Image<'scene'>): Image<'stops'> =>
 	run(gpu, {
 		label: 'stops',
-		wgsl: stopsWgsl,
+		glsl: stopsGlsl,
 		textures: { scene },
 		uniforms: {},
 		size: scene,
-		format: 'r32float'
+		format: 'R32F'
 	});
 
 /** Takes ownership of `scene`. */

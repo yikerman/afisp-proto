@@ -1,3 +1,4 @@
+import { glslFloat } from '../gpu/glsl';
 import type { Mat3 } from '../gpu/uniforms';
 
 export type Vec2 = readonly [number, number];
@@ -52,7 +53,8 @@ export function inverse(m: Matrix3): Matrix3 {
 export const columnMajor = (m: Matrix3): Mat3 =>
 	[...column(m, 0), ...column(m, 1), ...column(m, 2)] as unknown as Mat3;
 
-/** A WGSL `mat3x3f` constructor expression (which takes columns). */
-export const wgslMatrix = (m: Matrix3): string => `mat3x3f(${columnMajor(m).join(', ')})`;
+/** A GLSL `mat3` constructor expression (which takes columns). */
+export const glslMatrix = (m: Matrix3): string =>
+	`mat3(${columnMajor(m).map(glslFloat).join(', ')})`;
 
-export const wgslVector = (v: Vec3): string => `vec3f(${v.join(', ')})`;
+export const glslVector = (v: Vec3): string => `vec3(${v.map(glslFloat).join(', ')})`;

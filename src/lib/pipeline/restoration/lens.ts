@@ -2,9 +2,9 @@
 // bdce4fed98499b90077946e323f08069b979ee79; line numbers below refer to that revision.
 
 import type { Gpu } from '../../gpu/gpu';
-import type { Image, Size } from '../../gpu/image';
+import { upload, type Image, type Size, type Texture } from '../../gpu/image';
 import { run } from '../../gpu/pass';
-import { f32 } from '../../gpu/uniforms';
+import { float } from '../../gpu/uniforms';
 import type { GeometryKnot, LensCorrection } from '../../raw/lensData';
 
 type Channel = 'red' | 'green' | 'blue';
@@ -61,100 +61,95 @@ export function autoscale(geometry: readonly GeometryKnot[], size: Size): number
 // Linear between knots and constant outside them, as darktable's
 // _interpolate_linear_spline (src/iop/lens.cc:2319). Knots are texels of a
 // one-row texture, radius in x.
-const interpolate = /* wgsl */ `
-fn knot(knots: texture_2d<f32>, i: i32) -> vec4f {
-	return textureLoad(knots, vec2i(i, 0), 0);
+const interpolate = /* glsl */ `
+vec4 knot(sampler2D knots, int i) {
+	return texelFetch(knots, ivec2(i, 0), 0);
 }
 
-fn interpolate(knots: texture_2d<f32>, radius: f32) -> vec4f {
-	let n = i32(textureDimensions(knots).x);
+vec4 interpolate(sampler2D knots, float radius) {
+	int n = textureSize(knots, 0).x;
 	if (radius <= knot(knots, 0).x) { return knot(knots, 0); }
 	if (radius >= knot(knots, n - 1).x) { return knot(knots, n - 1); }
-	var low = 0;
-	var high = n - 1;
+	int low = 0;
+	int high = n - 1;
 	while (high - low > 1) {
-		let middle = (low + high) / 2;
+		int middle = (low + high) / 2;
 		if (knot(knots, middle).x <= radius) { low = middle; } else { high = middle; }
 	}
-	let a = knot(knots, low);
-	let b = knot(knots, high);
+	vec4 a = knot(knots, low);
+	vec4 b = knot(knots, high);
 	return mix(a, b, (radius - a.x) / (b.x - a.x));
 }
 
-fn radius_of(position: vec2f) -> f32 {
-	let size = vec2f(textureDimensions(camera));
-	return length(position - size / 2) / (length(size) / 2);
+float radius_of(vec2 position) {
+	vec2 size = vec2(textureSize(camera, 0));
+	return length(position - size / 2.0) / (length(size) / 2.0);
 }`;
 
-const vignettingWgsl = /* wgsl */ `
+const vignettingGlsl = /* glsl */ `
 ${interpolate}
 
-fn pixel(p: vec2i) -> vec4f {
-	let gain = interpolate(vignetting, radius_of(vec2f(p) + 0.5)).y;
-	return vec4f(textureLoad(camera, p, 0).rgb * gain, 1);
+vec4 pixel(ivec2 p) {
+	float gain = interpolate(vignetting, radius_of(vec2(p) + 0.5)).y;
+	return vec4(texelFetch(camera, p, 0).rgb * gain, 1);
 }`;
 
 // Bicubic with a = -0.5 (Keys 1981), darktable's bicubic
 // (_maketaps_bicubic, src/common/interpolation.c:193), and like its
 // dt_interpolation_compute_sample, mirrored at the border (interpolation.c:486).
-const geometryWgsl = /* wgsl */ `
+// `autoscale` keeps every position inside the frame, so a mirrored tap is at
+// most two texels outside it and lands inside.
+const geometryGlsl = /* glsl */ `
 ${interpolate}
 
-fn keys(t: f32) -> vec4f {
-	let x = vec4f(1 + t, t, 1 - t, 2 - t);
-	let near = (1.5 * x - 2.5) * x * x + 1;
-	let far = ((-0.5 * x + 2.5) * x - 4) * x + 2;
-	return select(far, near, x < vec4f(1));
+vec4 keys(float t) {
+	vec4 x = vec4(1.0 + t, t, 1.0 - t, 2.0 - t);
+	vec4 near = (1.5 * x - 2.5) * x * x + 1.0;
+	vec4 far = ((-0.5 * x + 2.5) * x - 4.0) * x + 2.0;
+	return mix(far, near, lessThan(x, vec4(1)));
 }
 
-fn mirror(i: vec2i, last: vec2i) -> vec2i {
-	return select(select(i, 2 * last - i, i > last), -i, i < vec2i(0));
+int mirror(int i, int last) {
+	return i < 0 ? -i : (i > last ? 2 * last - i : i);
 }
 
-fn bicubic(channel: i32, position: vec2f) -> f32 {
-	let last = vec2i(textureDimensions(camera)) - 1;
+float bicubic(int channel, vec2 position) {
+	ivec2 last = textureSize(camera, 0) - 1;
 	// Texel i has its centre at i + 0.5.
-	let index = position - 0.5;
-	let base = vec2i(floor(index));
-	let wx = keys(index.x - floor(index.x));
-	let wy = keys(index.y - floor(index.y));
-	var sum = 0.0;
-	for (var j = 0; j < 4; j++) {
-		var row = 0.0;
-		for (var i = 0; i < 4; i++) {
-			row += wx[i] * textureLoad(camera, mirror(base + vec2i(i - 1, j - 1), last), 0)[channel];
+	vec2 index = position - 0.5;
+	ivec2 base = ivec2(floor(index));
+	vec4 wx = keys(index.x - floor(index.x));
+	vec4 wy = keys(index.y - floor(index.y));
+	float sum = 0.0;
+	for (int j = 0; j < 4; j++) {
+		float row = 0.0;
+		for (int i = 0; i < 4; i++) {
+			ivec2 tap = base + ivec2(i - 1, j - 1);
+			row += wx[i] * texelFetch(camera, ivec2(mirror(tap.x, last.x), mirror(tap.y, last.y)), 0)[channel];
 		}
 		sum += wy[j] * row;
 	}
 	return sum;
 }
 
-fn pixel(p: vec2i) -> vec4f {
-	let size = vec2f(textureDimensions(camera));
-	let offset = (vec2f(p) + 0.5 - size / 2) / u.scale;
-	let scales = interpolate(geometry, length(offset) / (length(size) / 2));
-	var rgb = vec3f(0);
-	for (var c = 0; c < 3; c++) {
-		rgb[c] = bicubic(c, size / 2 + offset * scales[c + 1]);
+vec4 pixel(ivec2 p) {
+	vec2 size = vec2(textureSize(camera, 0));
+	vec2 offset = (vec2(p) + 0.5 - size / 2.0) / u.scale;
+	vec4 scales = interpolate(geometry, length(offset) / (length(size) / 2.0));
+	vec3 rgb = vec3(0);
+	for (int c = 0; c < 3; c++) {
+		rgb[c] = bicubic(c, size / 2.0 + offset * scales[c + 1]);
 	}
-	return vec4f(rgb, 1);
+	return vec4(rgb, 1);
 }`;
 
-function knotTexture(gpu: Gpu, label: string, rows: readonly (readonly number[])[]): GPUTexture {
-	const texture = gpu.device.createTexture({
-		label,
-		size: [rows.length, 1],
-		format: 'rgba32float',
-		usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST
-	});
-	gpu.device.queue.writeTexture(
-		{ texture },
-		new Float32Array(rows.flatMap((row) => [...row, 0, 0, 0, 0].slice(0, 4))),
-		{ bytesPerRow: 16 * rows.length },
-		[rows.length, 1]
+const knotTexture = (gpu: Gpu, rows: readonly (readonly number[])[]): Texture =>
+	upload(
+		gpu,
+		{ width: rows.length, height: 1 },
+		'RGBA32F',
+		new Float32Array(rows.flatMap((row) => [...row, 0, 0, 0, 0].slice(0, 4)))
 	);
-	return texture;
-}
 
 /**
  * Corrects vignetting, then distortion and lateral chromatic aberration, in
@@ -174,29 +169,27 @@ export function correctLens(
 	const size: Size = { width: camera.width, height: camera.height };
 	const vignetting = knotTexture(
 		gpu,
-		'lens vignetting knots',
 		correction.vignetting.map((k) => [k.radius, k.gain])
 	);
 	const geometry = knotTexture(
 		gpu,
-		'lens geometry knots',
 		correction.geometry.map((k) => [k.radius, k.red, k.green, k.blue])
 	);
 	const shaded = run<'camera'>(gpu, {
 		label: 'lens vignetting',
-		wgsl: vignettingWgsl,
+		glsl: vignettingGlsl,
 		textures: { camera, vignetting },
 		uniforms: {},
 		size,
-		format: 'rgba16float'
+		format: 'RGBA16F'
 	});
 	const corrected = run<'camera'>(gpu, {
 		label: 'lens geometry',
-		wgsl: geometryWgsl,
+		glsl: geometryGlsl,
 		textures: { camera: shaded, geometry },
-		uniforms: { scale: f32(autoscale(correction.geometry, size)) },
+		uniforms: { scale: float(autoscale(correction.geometry, size)) },
 		size,
-		format: 'rgba16float'
+		format: 'RGBA16F'
 	});
 	for (const texture of [vignetting, geometry, shaded]) texture.destroy();
 	return corrected;

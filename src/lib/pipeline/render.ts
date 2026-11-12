@@ -67,7 +67,7 @@ function latest<K, V>(make: (key: K) => V, free: (value: V) => void) {
 }
 
 export function createRenderer(gpu: Gpu, raw: RawFile): Renderer {
-	const sensor = upload<'sensor'>(gpu, 'sensor', raw.sensorSize, 'r16uint', raw.sensor);
+	const sensor = upload<'sensor'>(gpu, raw.sensorSize, 'R16UI', raw.sensor);
 	const mosaic = linearise(gpu, sensor, raw.meta);
 	const camera = demosaic(gpu, mosaic, raw.meta.pattern);
 	sensor.destroy();

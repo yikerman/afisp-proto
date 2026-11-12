@@ -4,7 +4,7 @@ import { D65, rec2020ToXyz, whiteXyz, xyzToRec2020 } from '../../colour/spaces';
 import type { Gpu } from '../../gpu/gpu';
 import type { Image, Size } from '../../gpu/image';
 import { run } from '../../gpu/pass';
-import { f32, mat3x3f, vec2f } from '../../gpu/uniforms';
+import { float, mat3, vec2 } from '../../gpu/uniforms';
 import {
 	columnMajor,
 	compose,
@@ -74,12 +74,12 @@ function upright(source: Size, turns: QuarterTurns) {
 /** Size of the upright image the pipeline produces for a file. */
 export const imageSize = (meta: RawMeta): Size => upright(meta.active, meta.orientation).size;
 
-const wgsl = /* wgsl */ `
-fn pixel(p: vec2i) -> vec4f {
-	let source = vec2i(u.origin + f32(p.x) * u.x_axis + f32(p.y) * u.y_axis);
-	let rgb = u.matrix * textureLoad(camera, source, 0).rgb;
+const glsl = /* glsl */ `
+vec4 pixel(ivec2 p) {
+	ivec2 source = ivec2(u.origin + float(p.x) * u.x_axis + float(p.y) * u.y_axis);
+	vec3 rgb = u.matrix * texelFetch(camera, source, 0).rgb;
 	// Colours outside Rec.2020 are clipped to it; the scene encoding is non-negative.
-	return vec4f(max(rgb, vec3f(0)) * u.gain, 1);
+	return vec4(max(rgb, vec3(0)) * u.gain, 1);
 }`;
 
 export interface Calibration {
@@ -98,16 +98,16 @@ export function calibrate(
 	const { origin, xAxis, yAxis, size } = upright(camera, meta.orientation);
 	return run(gpu, {
 		label: 'calibrate',
-		wgsl,
+		glsl,
 		textures: { camera },
 		uniforms: {
-			matrix: mat3x3f(columnMajor(calibrationMatrix(meta, light))),
-			origin: vec2f(origin),
-			x_axis: vec2f(xAxis),
-			y_axis: vec2f(yAxis),
-			gain: f32(2 ** exposure)
+			matrix: mat3(columnMajor(calibrationMatrix(meta, light))),
+			origin: vec2(origin),
+			x_axis: vec2(xAxis),
+			y_axis: vec2(yAxis),
+			gain: float(2 ** exposure)
 		},
 		size,
-		format: 'rgba16float'
+		format: 'RGBA16F'
 	});
 }

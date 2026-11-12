@@ -1,4 +1,4 @@
-import { inverse, multiply, wgslMatrix, type Matrix3 } from '../math/matrix';
+import { glslMatrix, inverse, multiply, type Matrix3 } from '../math/matrix';
 import { rec2020ToXyz } from './spaces';
 
 // B. Ottosson, "A perceptual color space for image processing", 2020.
@@ -22,13 +22,13 @@ const sceneToLms = multiply(xyzToLms, rec2020ToXyz);
  *
  * Oklab is a placeholder for a colour space built for scene-referred data.
  */
-export const oklabWgsl = /* wgsl */ `
-fn oklab_from_scene(rgb: vec3f) -> vec3f {
-	let lms = ${wgslMatrix(sceneToLms)} * rgb;
-	return ${wgslMatrix(lmsToLab)} * (sign(lms) * pow(abs(lms), vec3f(1.0 / 3.0)));
+export const oklabGlsl = /* glsl */ `
+vec3 oklab_from_scene(vec3 rgb) {
+	vec3 lms = ${glslMatrix(sceneToLms)} * rgb;
+	return ${glslMatrix(lmsToLab)} * (sign(lms) * pow(abs(lms), vec3(1.0 / 3.0)));
 }
 
-fn scene_from_oklab(lab: vec3f) -> vec3f {
-	let root = ${wgslMatrix(inverse(lmsToLab))} * lab;
-	return ${wgslMatrix(inverse(sceneToLms))} * (root * root * root);
+vec3 scene_from_oklab(vec3 lab) {
+	vec3 root = ${glslMatrix(inverse(lmsToLab))} * lab;
+	return ${glslMatrix(inverse(sceneToLms))} * (root * root * root);
 }`;

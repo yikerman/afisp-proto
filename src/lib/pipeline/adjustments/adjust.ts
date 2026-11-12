@@ -1,9 +1,9 @@
 import type { Gpu } from '../../gpu/gpu';
 import type { Image } from '../../gpu/image';
 import { run } from '../../gpu/pass';
-import { f32, vec2f, type Uniform, type Uniforms } from '../../gpu/uniforms';
-import { referenceTextures, referenceWgsl, type Reference } from '../reference';
-import { maskWgsl } from './mask';
+import type { Uniform, Uniforms } from '../../gpu/uniforms';
+import { referenceGlsl, referenceTextures, type Reference } from '../reference';
+import { maskGlsl } from './mask';
 import {
 	isKind,
 	type Instance,
@@ -13,40 +13,26 @@ import {
 } from './module';
 import type { Mask } from './mask';
 
-// A module's parameters reach its function as a struct built from uniforms.
-// Uniform buffers cannot hold arrays of f32, so an array is one uniform per element.
+// A module's parameters reach its function as a struct built from uniforms of the same types.
 
 type Field = { readonly name: string; readonly type: ParamType; readonly value: unknown };
 
 const fields = ({ module, values }: Instance<ShaderKind>): Field[] =>
 	Object.entries(module.params).map(([name, type]) => ({ name, type, value: values[name] }));
 
-function uniforms(prefix: string, i: Instance<ShaderKind>): Uniforms {
-	const entries = fields(i).flatMap(({ name, type, value }): [string, Uniform][] => {
-		switch (type) {
-			case 'f32':
-				return [[`${prefix}${name}`, f32(value as number)]];
-			case 'vec2f':
-				return [[`${prefix}${name}`, vec2f(value as readonly [number, number])]];
-			default:
-				return (value as readonly number[]).map((v, k) => [`${prefix}${name}_${k}`, f32(v)]);
-		}
-	});
-	return Object.fromEntries(entries);
-}
-
-function argument(prefix: string, i: Instance<ShaderKind>): string {
-	const members = fields(i).map(({ name, type, value }) =>
-		type === 'f32' || type === 'vec2f'
-			? `u.${prefix}${name}`
-			: `${type}(${(value as readonly number[]).map((_, k) => `u.${prefix}${name}_${k}`).join(', ')})`
+const uniforms = (prefix: string, i: Instance<ShaderKind>): Uniforms =>
+	Object.fromEntries(
+		fields(i).map(({ name, type, value }) => [`${prefix}${name}`, { type, value } as Uniform])
 	);
-	return `${i.module.name}_params(${members.join(', ')})`;
-}
+
+const argument = (prefix: string, i: Instance<ShaderKind>): string =>
+	`${i.module.name}_params(${fields(i)
+		.map(({ name }) => `u.${prefix}${name}`)
+		.join(', ')})`;
 
 function declaration(module: ShaderModule): string {
-	const members = Object.entries(module.params).map(([name, type]) => `\t${name}: ${type},`);
-	return `struct ${module.name}_params {\n${members.join('\n')}\n}\n${module.wgsl}`;
+	const members = Object.entries(module.params).map(([name, type]) => `\t${type} ${name};`);
+	return `struct ${module.name}_params {\n${members.join('\n')}\n};\n${module.glsl}`;
 }
 
 const unique = <T>(items: readonly T[]): T[] => [...new Set(items)];
@@ -58,10 +44,10 @@ function shader(
 ) {
 	const modules = unique(instances.map((i) => i.module));
 	const statements = instances.map((i, k) =>
-		statement({ mask: maskWgsl(i.mask), name: i.module.name, params: argument(`i${k}_`, i) })
+		statement({ mask: maskGlsl(i.mask), name: i.module.name, params: argument(`i${k}_`, i) })
 	);
 	return [
-		referenceWgsl,
+		referenceGlsl,
 		...unique(modules.flatMap((m) => m.imports)),
 		...modules.map(declaration),
 		body.replace('STATEMENTS', statements.join('\n\t'))
@@ -81,21 +67,21 @@ const allUniforms = (instances: readonly Instance<ShaderKind>[]): Uniforms =>
 function relight(gpu: Gpu, reference: Reference, terms: readonly Instance<'tone'>[]) {
 	return run<'scene'>(gpu, {
 		label: 'tone',
-		wgsl: shader(
+		glsl: shader(
 			terms,
 			({ mask, name, params }) => `stops += (${mask}) * ${name}(reference, ${params});`,
-			/* wgsl */ `
-fn pixel(p: vec2i) -> vec4f {
-	let reference = reference_at(p);
-	var stops = 0.0;
+			/* glsl */ `
+vec4 pixel(ivec2 p) {
+	Reference reference = reference_at(p);
+	float stops = 0.0;
 	STATEMENTS
-	return vec4f(reference.scene * exp2(stops), 1);
+	return vec4(reference.scene * exp2(stops), 1);
 }`
 		),
 		textures: referenceTextures(reference),
 		uniforms: allUniforms(terms),
 		size: reference.scene,
-		format: 'rgba16float'
+		format: 'RGBA16F'
 	});
 }
 
@@ -108,22 +94,22 @@ function colour(
 ) {
 	return run<'scene'>(gpu, {
 		label: 'colour',
-		wgsl: shader(
+		glsl: shader(
 			operations,
 			({ mask, name, params }) => `rgb = mix(rgb, ${name}(rgb, reference, ${params}), ${mask});`,
-			/* wgsl */ `
-fn pixel(p: vec2i) -> vec4f {
-	let reference = reference_at(p);
-	var rgb = textureLoad(image, p, 0).rgb;
+			/* glsl */ `
+vec4 pixel(ivec2 p) {
+	Reference reference = reference_at(p);
+	vec3 rgb = texelFetch(image, p, 0).rgb;
 	STATEMENTS
 	// Colours pushed outside Rec.2020 are clipped to it; the scene encoding is non-negative.
-	return vec4f(max(rgb, vec3f(0)), 1);
+	return vec4(max(rgb, vec3(0)), 1);
 }`
 		),
 		textures: { ...referenceTextures(reference), image },
 		uniforms: allUniforms(operations),
 		size: reference.scene,
-		format: 'rgba16float'
+		format: 'RGBA16F'
 	});
 }
 
@@ -137,15 +123,15 @@ function blend(
 ) {
 	return run<'scene'>(gpu, {
 		label: 'blend',
-		wgsl: `${referenceWgsl}
-fn pixel(p: vec2i) -> vec4f {
-	let reference = reference_at(p);
-	return mix(textureLoad(before, p, 0), textureLoad(after, p, 0), ${maskWgsl(mask)});
+		glsl: `${referenceGlsl}
+vec4 pixel(ivec2 p) {
+	Reference reference = reference_at(p);
+	return mix(texelFetch(before, p, 0), texelFetch(after, p, 0), ${maskGlsl(mask)});
 }`,
 		textures: { ...referenceTextures(reference), before, after },
 		uniforms: {},
 		size: reference.scene,
-		format: 'rgba16float'
+		format: 'RGBA16F'
 	});
 }
 

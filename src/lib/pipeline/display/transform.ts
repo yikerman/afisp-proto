@@ -3,6 +3,7 @@
 // bdce4fed98499b90077946e323f08069b979ee79.
 
 import type { Gpu } from '../../gpu/gpu';
+import { glslFloat } from '../../gpu/glsl';
 import type { Image } from '../../gpu/image';
 import { run } from '../../gpu/pass';
 import { MIDDLE_GREY, srgbToXyz, rec2020ToXyz } from '../../colour/spaces';
@@ -12,7 +13,7 @@ import {
 	multiply,
 	transform,
 	transpose,
-	wgslMatrix,
+	glslMatrix,
 	type Matrix3,
 	type Vec2,
 	type Vec3
@@ -369,7 +370,7 @@ function derivePrimaries(p: AgxParams): Primaries {
 	};
 }
 
-// --- WGSL --------------------------------------------------------------------------------
+// --- GLSL --------------------------------------------------------------------------------
 
 const curve = deriveCurve(sceneReferredDefaults);
 const primaries = derivePrimaries(sceneReferredDefaults);
@@ -381,49 +382,47 @@ const renderingToSrgb = multiply(
 	multiply(rec2020ToXyz, primaries.renderingToBase)
 );
 
-const f32 = (x: number) => `${x}`;
-
 /**
- * `fn display_transform(scene: vec3f) -> vec3f`: scene-linear Rec.2020 to sRGB-encoded
+ * `vec3 display_transform(vec3 scene)`: scene-linear Rec.2020 to sRGB-encoded
  * values in [0, 1]. Every other name it defines starts with `agx_` or `AGX_`.
  */
-export const displayTransformWgsl = `
-const AGX_EPSILON: f32 = ${f32(EPSILON)};
-const AGX_MIDDLE_GREY: f32 = ${f32(AGX_MIDDLE_GREY)};
-const AGX_BLACK_RELATIVE_EV: f32 = ${f32(curve.blackRelativeEv)};
-const AGX_RANGE_IN_EV: f32 = ${f32(curve.rangeInEv)};
-const AGX_GAMMA: f32 = ${f32(curve.gamma)};
-const AGX_SLOPE: f32 = ${f32(curve.slope)};
-const AGX_INTERCEPT: f32 = ${f32(curve.intercept)};
-const AGX_TARGET_BLACK: f32 = ${f32(curve.targetBlack)};
-const AGX_TARGET_WHITE: f32 = ${f32(curve.targetWhite)};
-const AGX_TOE_X: f32 = ${f32(curve.toe.transitionX)};
-const AGX_TOE_Y: f32 = ${f32(curve.toe.transitionY)};
-const AGX_TOE_SCALE: f32 = ${f32(curve.toe.scale)};
-const AGX_TOE_POWER: f32 = ${f32(curve.toe.power)};
-const AGX_SHOULDER_X: f32 = ${f32(curve.shoulder.transitionX)};
-const AGX_SHOULDER_Y: f32 = ${f32(curve.shoulder.transitionY)};
-const AGX_SHOULDER_SCALE: f32 = ${f32(curve.shoulder.scale)};
-const AGX_SHOULDER_POWER: f32 = ${f32(curve.shoulder.power)};
-const AGX_HUE_MIX: f32 = ${f32(sceneReferredDefaults.lookOriginalHueMixRatio)};
-const AGX_BASE_TO_RENDERING = ${wgslMatrix(primaries.baseToRendering)};
-const AGX_RENDERING_TO_SRGB = ${wgslMatrix(renderingToSrgb)};
+export const displayTransformGlsl = `
+const float AGX_EPSILON = ${glslFloat(EPSILON)};
+const float AGX_MIDDLE_GREY = ${glslFloat(AGX_MIDDLE_GREY)};
+const float AGX_BLACK_RELATIVE_EV = ${glslFloat(curve.blackRelativeEv)};
+const float AGX_RANGE_IN_EV = ${glslFloat(curve.rangeInEv)};
+const float AGX_GAMMA = ${glslFloat(curve.gamma)};
+const float AGX_SLOPE = ${glslFloat(curve.slope)};
+const float AGX_INTERCEPT = ${glslFloat(curve.intercept)};
+const float AGX_TARGET_BLACK = ${glslFloat(curve.targetBlack)};
+const float AGX_TARGET_WHITE = ${glslFloat(curve.targetWhite)};
+const float AGX_TOE_X = ${glslFloat(curve.toe.transitionX)};
+const float AGX_TOE_Y = ${glslFloat(curve.toe.transitionY)};
+const float AGX_TOE_SCALE = ${glslFloat(curve.toe.scale)};
+const float AGX_TOE_POWER = ${glslFloat(curve.toe.power)};
+const float AGX_SHOULDER_X = ${glslFloat(curve.shoulder.transitionX)};
+const float AGX_SHOULDER_Y = ${glslFloat(curve.shoulder.transitionY)};
+const float AGX_SHOULDER_SCALE = ${glslFloat(curve.shoulder.scale)};
+const float AGX_SHOULDER_POWER = ${glslFloat(curve.shoulder.power)};
+const float AGX_HUE_MIX = ${glslFloat(sceneReferredDefaults.lookOriginalHueMixRatio)};
+const mat3 AGX_BASE_TO_RENDERING = ${glslMatrix(primaries.baseToRendering)};
+const mat3 AGX_RENDERING_TO_SRGB = ${glslMatrix(renderingToSrgb)};
 
 // _apply_log_encoding(), agx.c:723
-fn agx_log_encoding(x: f32) -> f32 {
-	let relative = max(AGX_EPSILON, x / AGX_MIDDLE_GREY);
-	return saturate((log2(relative) - AGX_BLACK_RELATIVE_EV) / AGX_RANGE_IN_EV);
+float agx_log_encoding(float x) {
+	float relative = max(AGX_EPSILON, x / AGX_MIDDLE_GREY);
+	return clamp((log2(relative) - AGX_BLACK_RELATIVE_EV) / AGX_RANGE_IN_EV, 0.0, 1.0);
 }
 
 // _scaled_sigmoid(), agx.c:607
-fn agx_scaled_sigmoid(x: f32, scale: f32, power: f32, transition_x: f32, transition_y: f32) -> f32 {
-	let t = AGX_SLOPE * (x - transition_x) / scale;
+float agx_scaled_sigmoid(float x, float scale, float power, float transition_x, float transition_y) {
+	float t = AGX_SLOPE * (x - transition_x) / scale;
 	return scale * t / pow(1.0 + pow(t, power), 1.0 / power) + transition_y;
 }
 
 // _apply_curve(), agx.c:638
-fn agx_curve(x: f32) -> f32 {
-	var y: f32;
+float agx_curve(float x) {
+	float y;
 	if (x < AGX_TOE_X) {
 		y = agx_scaled_sigmoid(x, AGX_TOE_SCALE, AGX_TOE_POWER, AGX_TOE_X, AGX_TOE_Y);
 	} else if (x <= AGX_SHOULDER_X) {
@@ -435,13 +434,13 @@ fn agx_curve(x: f32) -> f32 {
 }
 
 // dt_RGB_2_HSV(), src/common/colorspaces_inline_conversions.h
-fn agx_rgb_to_hsv(rgb: vec3f) -> vec3f {
-	let high = max(rgb.r, max(rgb.g, rgb.b));
-	let delta = high - min(rgb.r, min(rgb.g, rgb.b));
+vec3 agx_rgb_to_hsv(vec3 rgb) {
+	float high = max(rgb.r, max(rgb.g, rgb.b));
+	float delta = high - min(rgb.r, min(rgb.g, rgb.b));
 	if (abs(high) <= 1e-6 || abs(delta) <= 1e-6) {
-		return vec3f(0.0, 0.0, high);
+		return vec3(0.0, 0.0, high);
 	}
-	var hue: f32;
+	float hue;
 	if (rgb.r == high) {
 		hue = (rgb.g - rgb.b) / delta;
 	} else if (rgb.g == high) {
@@ -450,69 +449,69 @@ fn agx_rgb_to_hsv(rgb: vec3f) -> vec3f {
 		hue = 4.0 + (rgb.r - rgb.g) / delta;
 	}
 	hue /= 6.0;
-	let h = hue - floor(hue);
-	return vec3f(select(0.0, h, h < 1.0), delta / high, high);
+	float h = hue - floor(hue);
+	return vec3(h < 1.0 ? h : 0.0, delta / high, high);
 }
 
 // dt_HSV_2_RGB(), src/common/colorspaces_inline_conversions.h
-fn agx_hsv_to_rgb(hsv: vec3f) -> vec3f {
-	let c = hsv.y * hsv.z;
-	let low = hsv.z - c;
-	let sector = floor(hsv.x * 6.0);
-	let fc = (hsv.x * 6.0 - sector) * c;
-	let top = c + low;
-	let rising = fc + low;
-	let falling = top - fc;
-	switch (i32(sector)) {
-		case 0: { return vec3f(top, rising, low); }
-		case 1: { return vec3f(falling, top, low); }
-		case 2: { return vec3f(low, top, rising); }
-		case 3: { return vec3f(low, falling, top); }
-		case 4: { return vec3f(rising, low, top); }
-		default: { return vec3f(top, low, falling); }
+vec3 agx_hsv_to_rgb(vec3 hsv) {
+	float c = hsv.y * hsv.z;
+	float low = hsv.z - c;
+	float sector = floor(hsv.x * 6.0);
+	float fc = (hsv.x * 6.0 - sector) * c;
+	float top = c + low;
+	float rising = fc + low;
+	float falling = top - fc;
+	switch (int(sector)) {
+		case 0: return vec3(top, rising, low);
+		case 1: return vec3(falling, top, low);
+		case 2: return vec3(low, top, rising);
+		case 3: return vec3(low, falling, top);
+		case 4: return vec3(rising, low, top);
+		default: return vec3(top, low, falling);
 	}
 }
 
-// _lerp_hue(), agx.c:665; x - round(x) is C's remainderf(x, 1), both rounding ties to even.
-fn agx_lerp_hue(original: f32, processed: f32, mix: f32) -> f32 {
-	let distance = processed - original - round(processed - original);
-	let mixed = (1.0 - mix) * distance + original;
+// _lerp_hue(), agx.c:665; x - roundEven(x) is C's remainderf(x, 1), which rounds ties to even.
+float agx_lerp_hue(float original, float processed, float ratio) {
+	float difference = processed - original - roundEven(processed - original);
+	float mixed = (1.0 - ratio) * difference + original;
 	return mixed - floor(mixed);
 }
 
-fn agx_srgb_encode(linear: f32) -> f32 {
-	return select(1.055 * pow(linear, 1.0 / 2.4) - 0.055, 12.92 * linear, linear <= 0.0031308);
+float agx_srgb_encode(float linear) {
+	return linear <= 0.0031308 ? 12.92 * linear : 1.055 * pow(linear, 1.0 / 2.4) - 0.055;
 }
 
 // process(), agx.c:1477, then the display's colour space. _compress_into_gamut() (agx.c:751)
 // is omitted: it is the identity for non-negative input, where its offset is 0 and the two
 // luminances it compares are computed identically.
-fn display_transform(scene: vec3f) -> vec3f {
-	let rendering = AGX_BASE_TO_RENDERING * scene;
+vec3 display_transform(vec3 scene) {
+	vec3 rendering = AGX_BASE_TO_RENDERING * scene;
 	// _agx_tone_mapping(), agx.c:1189
-	let curved = vec3f(
+	vec3 curved = vec3(
 		agx_curve(agx_log_encoding(rendering.r)),
 		agx_curve(agx_log_encoding(rendering.g)),
 		agx_curve(agx_log_encoding(rendering.b))
 	);
-	let linear = pow(max(curved, vec3f(0.0)), vec3f(AGX_GAMMA));
-	var hsv = agx_rgb_to_hsv(linear);
+	vec3 linear = pow(max(curved, vec3(0.0)), vec3(AGX_GAMMA));
+	vec3 hsv = agx_rgb_to_hsv(linear);
 	hsv.x = agx_lerp_hue(agx_rgb_to_hsv(rendering).x, hsv.x, AGX_HUE_MIX);
-	let display = saturate(AGX_RENDERING_TO_SRGB * agx_hsv_to_rgb(hsv));
-	return vec3f(agx_srgb_encode(display.r), agx_srgb_encode(display.g), agx_srgb_encode(display.b));
+	vec3 display = clamp(AGX_RENDERING_TO_SRGB * agx_hsv_to_rgb(hsv), 0.0, 1.0);
+	return vec3(agx_srgb_encode(display.r), agx_srgb_encode(display.g), agx_srgb_encode(display.b));
 }
 `;
 
 export function displayTransform(gpu: Gpu, scene: Image<'scene'>): Image<'display'> {
 	return run<'display'>(gpu, {
 		label: 'display transform',
-		wgsl: `${displayTransformWgsl}
-			fn pixel(p: vec2i) -> vec4f {
-				return vec4f(display_transform(textureLoad(scene, p, 0).rgb), 1.0);
+		glsl: `${displayTransformGlsl}
+			vec4 pixel(ivec2 p) {
+				return vec4(display_transform(texelFetch(scene, p, 0).rgb), 1.0);
 			}`,
 		textures: { scene },
 		uniforms: {},
 		size: { width: scene.width, height: scene.height },
-		format: 'rgba16float'
+		format: 'RGBA16F'
 	});
 }
