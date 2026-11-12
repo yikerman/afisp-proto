@@ -59,7 +59,7 @@ npm run dev
 CHROMIUM=/usr/bin/chromium-browser npm test   # CHROMIUM is optional
 ```
 
-Tests run in a browser because the shaders need WebGPU.
+Tests run in a browser because the shaders need WebGL 2.
 
 ## References
 
