@@ -80,24 +80,34 @@ export function upload<E extends Encoding>(
 	return image;
 }
 
-/** Tightly packed bytes of the whole texture, row padding removed. */
-export async function download(gpu: Gpu, image: GPUTexture): Promise<ArrayBuffer> {
-	const rowBytes = image.width * bytesPerPixel[image.format as Format];
+export interface Region extends Size {
+	readonly x: number;
+	readonly y: number;
+}
+
+/** Tightly packed bytes of a region of the texture (all of it by default), row padding removed. */
+export async function download(
+	gpu: Gpu,
+	image: GPUTexture,
+	region: Region = { x: 0, y: 0, width: image.width, height: image.height }
+): Promise<ArrayBuffer> {
+	const rowBytes = region.width * bytesPerPixel[image.format as Format];
 	const paddedRowBytes = Math.ceil(rowBytes / 256) * 256; // WebGPU copy alignment
 	const buffer = gpu.device.createBuffer({
-		size: paddedRowBytes * image.height,
+		size: paddedRowBytes * region.height,
 		usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ
 	});
 	const encoder = gpu.device.createCommandEncoder();
-	encoder.copyTextureToBuffer({ texture: image }, { buffer, bytesPerRow: paddedRowBytes }, [
-		image.width,
-		image.height
-	]);
+	encoder.copyTextureToBuffer(
+		{ texture: image, origin: [region.x, region.y] },
+		{ buffer, bytesPerRow: paddedRowBytes },
+		[region.width, region.height]
+	);
 	gpu.device.queue.submit([encoder.finish()]);
 	await buffer.mapAsync(GPUMapMode.READ);
 	const padded = new Uint8Array(buffer.getMappedRange());
-	const packed = new Uint8Array(rowBytes * image.height);
-	for (let row = 0; row < image.height; row++) {
+	const packed = new Uint8Array(rowBytes * region.height);
+	for (let row = 0; row < region.height; row++) {
 		packed.set(
 			padded.subarray(row * paddedRowBytes, row * paddedRowBytes + rowBytes),
 			row * rowBytes

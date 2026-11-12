@@ -39,7 +39,13 @@ export interface Choice<V extends string = string> extends Placement {
 	readonly default: V;
 }
 
+/** A control that holds a value in the edit state. */
 export type Control = Slider | Wheel | Choice;
+
+/** Takes a colour from the picture. It holds no value; what it does with the colour is its item's. */
+export interface Picker extends Placement {
+	readonly widget: 'picker';
+}
 
 type Common = 'widget' | 'scale' | 'advanced';
 

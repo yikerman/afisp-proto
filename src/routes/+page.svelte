@@ -2,6 +2,8 @@
 	import { onMount } from 'svelte';
 	import { withStageReset } from '#lib/edit/controls.js';
 	import { toEdit } from '#lib/edit/edit.js';
+	import type { Item } from '#lib/edit/items.js';
+	import type { Vec2 } from '#lib/math/matrix.js';
 	import { Session, type Screen } from '#lib/edit/session.svelte.js';
 	import { exportTiff } from '#lib/export/export.js';
 	import { acquireGpu, type Gpu } from '#lib/gpu/gpu.js';
@@ -25,6 +27,9 @@
 	let renderer = $state.raw<Renderer | null>(null);
 	let histogram = $state.raw<Histogram | null>(null);
 	let failure = $state<string | null>(null);
+	/** The picker waiting for a click on the picture. */
+	let armed = $state.raw<Item | null>(null);
+	const PICK_RADIUS = 8; // pixels either side of the click that a pick averages
 	let busy = $state(false);
 
 	// Each screen shows the pipeline up to its own stage.
@@ -56,6 +61,18 @@
 			failure = message(error);
 		}
 		busy = false;
+	}
+
+	function go(screen: Screen) {
+		armed = null;
+		session.go(screen);
+	}
+
+	async function pick(item: Item, at: Vec2) {
+		armed = null;
+		const { calibration } = toEdit(session.edit);
+		const sample = await renderer!.sample(calibration, at, PICK_RADIUS);
+		session.set(item.id, sample, item.write(sample as never, session.edit, session.file!.initial));
 	}
 
 	function save(blob: Blob, name: string) {
@@ -126,6 +143,7 @@
 				edit={toEdit(shown)}
 				image={imageSize(session.file.raw.meta)}
 				onhistogram={(counts) => (histogram = counts)}
+				onpick={armed && ((at) => pick(armed!, at))}
 			/>
 			<aside>
 				<div class="scope"><HistogramView {histogram} /></div>
@@ -155,6 +173,8 @@
 						edit={session.edit}
 						initial={session.file.initial}
 						onchange={(item, value, change) => session.set(item, value, change)}
+						{armed}
+						onarm={(item) => (armed = item)}
 					/>
 				{/if}
 			</aside>
@@ -166,12 +186,12 @@
 			<button
 				aria-current={session.screen === screen}
 				disabled={!session.file}
-				onclick={() => session.go(screen)}
+				onclick={() => go(screen)}
 			>
 				{label}
 			</button>
 		{/each}
-		<button class="next" disabled={!session.file || !next} onclick={() => session.go(next[0])}>
+		<button class="next" disabled={!session.file || !next} onclick={() => go(next[0])}>
 			Next
 		</button>
 	</nav>

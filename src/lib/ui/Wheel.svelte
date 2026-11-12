@@ -1,6 +1,7 @@
 <script lang="ts">
 	import type { Wheel } from '../edit/controls';
 	import type { Vec2 } from '../math/matrix';
+	import { travel } from './travel';
 
 	interface Props {
 		spec: Wheel;
@@ -11,14 +12,17 @@
 	let { spec, value, initial, onchange }: Props = $props();
 
 	const RADIUS = 56; // of the drawn wheel, in CSS pixels
+	const FACE = RADIUS - 5;
 	let pad: SVGSVGElement;
+	const pointer = travel();
 
 	// The point moves with the pointer instead of jumping to it, as on a grading wheel.
 	function drag(event: PointerEvent) {
 		if (!pad.hasPointerCapture(event.pointerId)) return;
-		const perPixel = (spec.radius / RADIUS) * (event.shiftKey ? 0.1 : 1);
-		const x = value[0] + event.movementX * perPixel;
-		const y = value[1] - event.movementY * perPixel;
+		const perPixel = (spec.radius / FACE) * (event.shiftKey ? 0.1 : 1);
+		const [dx, dy] = pointer.step(event);
+		const x = value[0] + dx * perPixel;
+		const y = value[1] - dy * perPixel;
 		const overshoot = Math.max(1, Math.hypot(x, y) / spec.radius);
 		onchange([x / overshoot, y / overshoot]);
 	}
@@ -34,15 +38,18 @@
 			viewBox="{-RADIUS} {-RADIUS} {RADIUS * 2} {RADIUS * 2}"
 			role="application"
 			aria-label={spec.label}
-			onpointerdown={(event) => pad.setPointerCapture(event.pointerId)}
+			onpointerdown={(event) => {
+				pad.setPointerCapture(event.pointerId);
+				pointer.start(event);
+			}}
 			onpointermove={drag}
 			ondblclick={() => onchange(initial)}
 		>
-			<circle r={RADIUS - 5} class="face" />
-			<path d="M{-RADIUS + 5} 0H{RADIUS - 5}M0 {-RADIUS + 5}V{RADIUS - 5}" class="cross" />
+			<circle r={FACE} class="face" />
+			<path d="M{-FACE} 0H{FACE}M0 {-FACE}V{FACE}" class="cross" />
 			<circle
-				cx={(value[0] / spec.radius) * (RADIUS - 5)}
-				cy={(-value[1] / spec.radius) * (RADIUS - 5)}
+				cx={(value[0] / spec.radius) * FACE}
+				cy={(-value[1] / spec.radius) * FACE}
 				r="3.5"
 				class="point"
 			/>
@@ -54,15 +61,17 @@
 <style>
 	.wheel {
 		display: grid;
-		grid-template-columns: 84px 1fr;
-		gap: 6px;
-		padding: 6px 0;
+		justify-items: center;
+		gap: 3px;
+		padding: 4px 0;
+	}
+	.label {
+		justify-self: start;
 	}
 	.pad {
 		position: relative;
 		width: 112px;
 		height: 112px;
-		grid-row: span 2;
 	}
 	.rim {
 		position: absolute;
@@ -94,8 +103,6 @@
 		stroke-width: 1.5;
 	}
 	.readout {
-		grid-column: 1;
-		align-self: end;
 		color: var(--dim);
 	}
 </style>

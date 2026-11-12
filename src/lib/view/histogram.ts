@@ -1,7 +1,7 @@
 import type { Gpu } from '../gpu/gpu';
 import { download, type Image, type Size } from '../gpu/image';
 import { run } from '../gpu/pass';
-import { resample } from './resample';
+import { fit, resample } from './resample';
 
 export const BINS = 256;
 
@@ -17,7 +17,7 @@ export async function histogram(gpu: Gpu, display: Image<'display'>): Promise<Hi
 		width: Math.round(display.width * scale),
 		height: Math.round(display.height * scale)
 	};
-	const reduced = run(gpu, resample(display, size, 'rgba8unorm'));
+	const reduced = run(gpu, resample(display, fit(display, size), 'rgba8unorm'));
 	const pixels = new Uint8Array(await download(gpu, reduced));
 	reduced.destroy();
 	const counts: Histogram = [new Uint32Array(BINS), new Uint32Array(BINS), new Uint32Array(BINS)];

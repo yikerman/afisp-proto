@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { admit, type Slider } from '../edit/controls';
+	import { travel } from './travel';
 
 	interface Props {
 		spec: Slider;
@@ -27,9 +28,11 @@
 	let track: HTMLDivElement;
 	// Unrounded position while dragging, so fine movement accumulates.
 	let dragged = 0;
+	const pointer = travel();
 
 	function press(event: PointerEvent) {
 		track.setPointerCapture(event.pointerId);
+		pointer.start(event);
 		const box = track.getBoundingClientRect();
 		dragged = event.shiftKey ? toTrack(value) : clamp((event.clientX - box.left) / box.width, 0, 1);
 		onchange(admitted(fromTrack(dragged)));
@@ -38,7 +41,7 @@
 	function drag(event: PointerEvent) {
 		if (!track.hasPointerCapture(event.pointerId)) return;
 		const fine = event.shiftKey ? 0.1 : 1;
-		dragged = clamp(dragged + (event.movementX / track.clientWidth) * fine, 0, 1);
+		dragged = clamp(dragged + (pointer.step(event)[0] / track.clientWidth) * fine, 0, 1);
 		onchange(admitted(fromTrack(dragged)));
 	}
 

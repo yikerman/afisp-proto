@@ -36,3 +36,18 @@ test('a light that matches no named source reads as custom', () => {
 	expect(item('lightSource').read({ ...initial, temperature: 5000 }, initial)).toBe('custom');
 	expect(apply(initial, 'lightSource', 'custom')).toEqual(initial);
 });
+
+test('picking a tone as middle grey sets the exposure that puts it there', () => {
+	const twoStopsUnder = [0.045, 0.045, 0.045];
+	expect(apply(initial, 'pickMiddleGrey', twoStopsUnder).exposure).toBeCloseTo(
+		initial.exposure + 2,
+		2
+	);
+	expect(apply(initial, 'pickMiddleGrey', [0, 0, 0])).toEqual(initial);
+});
+
+test('picking something already neutral keeps the light', () => {
+	const picked = apply(initial, 'pickNeutral', [0.3, 0.3, 0.3]);
+	expect(picked.temperature).toBeCloseTo(initial.temperature, -1);
+	expect(picked.tint).toBeCloseTo(initial.tint, 0);
+});

@@ -1,13 +1,16 @@
 import { chromaticity, illuminant } from '../colour/illuminant';
-import { D65, type Chromaticity } from '../colour/spaces';
-import type { Vec2 } from '../math/matrix';
+import { D65, MIDDLE_GREY, rec2020Luminance, type Chromaticity } from '../colour/spaces';
+import type { Vec2, Vec3 } from '../math/matrix';
+import { neutralisingLight } from '../pipeline/restoration/calibrate';
 import {
+	admit,
 	controlIds,
 	controls,
 	restoration,
 	slider,
 	type Choice,
 	type Control,
+	type Picker,
 	type EditState
 } from './controls';
 
@@ -20,7 +23,7 @@ import {
  */
 export interface Item {
 	readonly id: string;
-	readonly spec: Control;
+	readonly spec: Control | Picker;
 	/** `initial` is the edit the file opened with. */
 	read(state: EditState, initial: EditState): unknown;
 	/** The part of the edit that changes when the item is set to `value`. */
@@ -33,6 +36,8 @@ const own = controlIds.map((id): Item => ({
 	read: (state) => state[id],
 	write: (value) => ({ [id]: value })
 }));
+
+const dot = (a: Vec3, b: Vec3) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
 
 const light = { ...restoration, section: 'White balance', advanced: true } as const;
 
@@ -58,6 +63,48 @@ const lightNames = ['as-shot', ...Object.keys(STANDARD_LIGHTS)] as Exclude<Light
 // A named light is recognised to the precision the sliders show.
 const sameLight = (a: Pick<EditState, 'temperature' | 'tint'>, b: typeof a) =>
 	Math.abs(a.temperature - b.temperature) < 5 && Math.abs(a.tint - b.tint) < 0.05;
+
+// A picker's value is the scene colour the user clicked, as restored under the current edit.
+
+const pickMiddleGrey: Item = {
+	id: 'pickMiddleGrey',
+	spec: {
+		widget: 'picker',
+		...restoration,
+		section: 'Exposure',
+		label: 'Pick middle grey',
+		advanced: false
+	},
+	read: () => null,
+	write: (sample: Vec3, state) => {
+		const luminance = dot(sample, rec2020Luminance);
+		// Black has no exposure that makes it middle grey.
+		return luminance > 0
+			? { exposure: admit(controls.exposure, state.exposure - Math.log2(luminance / MIDDLE_GREY)) }
+			: {};
+	}
+};
+
+const pickNeutral: Item = {
+	id: 'pickNeutral',
+	spec: {
+		widget: 'picker',
+		...restoration,
+		section: 'White balance',
+		label: 'Pick neutral',
+		advanced: false
+	},
+	read: () => null,
+	write: (sample: Vec3, state) => {
+		// Black has no colour to neutralise.
+		if (dot(sample, rec2020Luminance) === 0) return {};
+		const found = neutralisingLight(sample, state);
+		return {
+			temperature: admit(controls.temperature, found.temperature),
+			tint: admit(controls.tint, found.tint)
+		};
+	}
+};
 
 const lightSource: Item = {
 	id: 'lightSource',
@@ -129,4 +176,11 @@ const lightChroma: Item = {
 };
 
 /** Every panel item, in display order within its section. */
-export const items: readonly Item[] = [...own, lightSource, lightHue, lightChroma];
+export const items: readonly Item[] = [
+	...own,
+	pickMiddleGrey,
+	pickNeutral,
+	lightSource,
+	lightHue,
+	lightChroma
+];

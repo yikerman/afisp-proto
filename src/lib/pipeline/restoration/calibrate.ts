@@ -1,6 +1,6 @@
 import { adaptation } from '../../colour/adaptation';
 import { chromaticity, illuminant, type Illuminant } from '../../colour/illuminant';
-import { D65, whiteXyz, xyzToRec2020 } from '../../colour/spaces';
+import { D65, rec2020ToXyz, whiteXyz, xyzToRec2020 } from '../../colour/spaces';
 import type { Gpu } from '../../gpu/gpu';
 import type { Image, Size } from '../../gpu/image';
 import { run } from '../../gpu/pass';
@@ -45,6 +45,17 @@ export function calibrationMatrix(meta: RawMeta, light: Illuminant): Matrix3 {
 		inverse(meta.xyzToCamera),
 		diagonal(reciprocal(demosaicGains(meta)))
 	);
+}
+
+/**
+ * The light under which `sample`, a scene colour restored assuming `assumed`,
+ * would have come out neutral.
+ */
+export function neutralisingLight(sample: Vec3, assumed: Illuminant): Illuminant {
+	const assumedWhite = whiteXyz(chromaticity(assumed));
+	const adapted = transform(rec2020ToXyz, sample);
+	const [x, y, z] = transform(inverse(adaptation(assumedWhite, whiteXyz(D65))), adapted);
+	return illuminant([x / (x + y + z), y / (x + y + z)]);
 }
 
 /** Output pixel to source pixel, as `origin + x * xAxis + y * yAxis`, for an upright image. */

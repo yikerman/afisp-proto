@@ -2,7 +2,7 @@ import { expect, test } from 'vitest';
 import { rec2020Luminance } from '../../colour/spaces';
 import { transform } from '../../math/matrix';
 import type { RawMeta } from '../../raw/decode';
-import { asShotIlluminant, calibrationMatrix } from './calibrate';
+import { asShotIlluminant, calibrationMatrix, neutralisingLight } from './calibrate';
 
 // Sony ILCE-7RM3, values as LibRaw reports them.
 const meta = {
@@ -30,4 +30,14 @@ test('telling the pipeline the light was bluer makes the picture warmer', () => 
 	const bluer = { ...asShot, temperature: asShot.temperature + 2000 };
 	const [r, , b] = transform(calibrationMatrix(meta, bluer), [0.3, 0.3, 0.3]);
 	expect(r).toBeGreaterThan(b);
+});
+
+test('picking a surface as neutral finds the light that makes it R=G=B', () => {
+	const assumed = asShotIlluminant(meta);
+	const camera = [0.21, 0.3, 0.26] as const;
+	const tinted = transform(calibrationMatrix(meta, assumed), camera);
+	const light = neutralisingLight(tinted, assumed);
+	const neutral = transform(calibrationMatrix(meta, light), camera);
+	expect(neutral[0] / neutral[1]).toBeCloseTo(1, 4);
+	expect(neutral[2] / neutral[1]).toBeCloseTo(1, 4);
 });

@@ -1,5 +1,6 @@
 import type { Gpu } from '../gpu/gpu';
-import { upload, type Image } from '../gpu/image';
+import { download, upload, type Image } from '../gpu/image';
+import type { Vec2, Vec3 } from '../math/matrix';
 import type { RawFile } from '../raw/decode';
 import { adjust } from './adjustments/adjust';
 import type { Instance } from './adjustments/module';
@@ -25,6 +26,8 @@ export interface Edit {
 export interface Renderer {
 	/** The returned image is valid until the next call. */
 	render(edit: Edit): Image<'display'>;
+	/** Mean scene colour of the restored image over a square of `radius` pixels around `at`. */
+	sample(calibration: Calibration, at: Vec2, radius: number): Promise<Vec3>;
 	destroy(): void;
 }
 
@@ -65,6 +68,26 @@ export function createRenderer(gpu: Gpu, raw: RawFile): Renderer {
 			display = displayTransform(gpu, graded);
 			graded.destroy();
 			return display;
+		},
+		async sample(calibration, [x, y], radius) {
+			const { scene } = reference.get(calibration);
+			const left = Math.max(0, Math.round(x) - radius);
+			const top = Math.max(0, Math.round(y) - radius);
+			const region = {
+				x: left,
+				y: top,
+				width: Math.min(scene.width, Math.round(x) + radius + 1) - left,
+				height: Math.min(scene.height, Math.round(y) + radius + 1) - top
+			};
+			const pixels = new Float16Array(await download(gpu, scene, region));
+			const sum = [0, 0, 0];
+			for (let i = 0; i < pixels.length; i += 4) {
+				sum[0] += pixels[i];
+				sum[1] += pixels[i + 1];
+				sum[2] += pixels[i + 2];
+			}
+			const count = pixels.length / 4;
+			return [sum[0] / count, sum[1] / count, sum[2] / count];
 		},
 		destroy() {
 			camera.destroy();

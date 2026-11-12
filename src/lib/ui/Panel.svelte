@@ -3,6 +3,7 @@
 	import { items, type Item } from '../edit/items';
 	import type { Vec2 } from '../math/matrix';
 	import Choice from './Choice.svelte';
+	import Picker from './Picker.svelte';
 	import Slider from './Slider.svelte';
 	import Wheel from './Wheel.svelte';
 
@@ -11,8 +12,11 @@
 		edit: EditState;
 		initial: EditState;
 		onchange: (item: string, value: unknown, change: Partial<EditState>) => void;
+		/** The picker waiting for a click on the picture, if any. */
+		armed: Item | null;
+		onarm: (item: Item | null) => void;
 	}
-	let { stage, edit, initial, onchange }: Props = $props();
+	let { stage, edit, initial, onchange, armed, onarm }: Props = $props();
 
 	const shown = $derived(items.filter((item) => item.spec.stage === stage));
 	const sections = $derived([...new Set(shown.map((item) => item.spec.section))]);
@@ -25,14 +29,7 @@
 
 {#snippet widget(item: Item)}
 	{@const spec = item.spec}
-	{#if spec.widget === 'slider'}
-		<Slider
-			{spec}
-			value={item.read(edit, initial) as number}
-			initial={item.read(initial, initial) as number}
-			onchange={(value) => set(item, value)}
-		/>
-	{:else if spec.widget === 'wheel'}
+	{#if spec.widget === 'wheel'}
 		<Wheel
 			{spec}
 			value={item.read(edit, initial) as Vec2}
@@ -40,11 +37,24 @@
 			onchange={(value) => set(item, value)}
 		/>
 	{:else}
-		<Choice
-			{spec}
-			value={item.read(edit, initial) as string}
-			onchange={(value) => set(item, value)}
-		/>
+		<div class="wide">
+			{#if spec.widget === 'slider'}
+				<Slider
+					{spec}
+					value={item.read(edit, initial) as number}
+					initial={item.read(initial, initial) as number}
+					onchange={(value) => set(item, value)}
+				/>
+			{:else if spec.widget === 'choice'}
+				<Choice
+					{spec}
+					value={item.read(edit, initial) as string}
+					onchange={(value) => set(item, value)}
+				/>
+			{:else}
+				<Picker {spec} armed={armed === item} onarm={(arm) => onarm(arm ? item : null)} />
+			{/if}
+		</div>
 	{/if}
 {/snippet}
 
@@ -55,9 +65,11 @@
 		<div class="body">
 			{#each within(section, false) as item (item.id)}{@render widget(item)}{/each}
 			{#if within(section, true).length > 0}
-				<details class="advanced">
+				<details class="advanced wide">
 					<summary>Advanced</summary>
-					{#each within(section, true) as item (item.id)}{@render widget(item)}{/each}
+					<div class="grid">
+						{#each within(section, true) as item (item.id)}{@render widget(item)}{/each}
+					</div>
 				</details>
 			{/if}
 		</div>
@@ -96,6 +108,15 @@
 	}
 	.body {
 		padding: 6px 10px 8px;
+	}
+	/* Wheels sit two to a row; everything else takes the full width. */
+	.body,
+	.grid {
+		display: grid;
+		grid-template-columns: 1fr 1fr;
+	}
+	.wide {
+		grid-column: 1 / -1;
 	}
 	.advanced > summary {
 		height: var(--row);
